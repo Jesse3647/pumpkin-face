@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="background" cx="50%" cy="42%" r="68%">
+      <stop offset="0" stop-color="#24140c"/>
+      <stop offset="1" stop-color="#080707"/>
+    </radialGradient>
+    <radialGradient id="pumpkin" cx="50%" cy="42%" r="65%">
+      <stop offset="0" stop-color="#ff9e32"/>
+      <stop offset="0.64" stop-color="#e85f0b"/>
+      <stop offset="1" stop-color="#8f2906"/>
+    </radialGradient>
+    <linearGradient id="carve" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff2a8"/>
+      <stop offset="0.48" stop-color="#ffb329"/>
+      <stop offset="1" stop-color="#ff5410"/>
+    </linearGradient>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="214" fill="url(#background)"/>
+  <path d="M470 208c-17-62 13-116 77-145 15 76 4 130-34 170z" fill="#315b2c"/>
+  <path d="M487 226c64-76 134-77 182-42-83 5-126 31-154 72z" fill="#47753b"/>
+  <ellipse cx="512" cy="568" rx="360" ry="330" fill="url(#pumpkin)" stroke="#602008" stroke-width="24"/>
+  <path d="M362 270c-92 144-97 442 0 594M512 244c-45 175-45 464 0 654M662 270c92 144 97 442 0 594" fill="none" stroke="#a83a09" stroke-width="30" stroke-linecap="round" opacity=".68"/>
+  <g fill="url(#carve)" stroke="#431507" stroke-width="20" stroke-linejoin="round" filter="url(#glow)">
+    <path d="M248 460l205-61-36 154-174 18z"/>
+    <path d="M776 460l-205-61 36 154 174 18z"/>
+    <path d="M262 672l92 45 72-42 84 55 91-55 70 42 91-45-61 149-126-5-69 45-75-45-118 5z"/>
+  </g>
+  <g fill="#160a06">
+    <ellipse cx="361" cy="492" rx="31" ry="53" transform="rotate(-9 361 492)"/>
+    <ellipse cx="663" cy="492" rx="31" ry="53" transform="rotate(9 663 492)"/>
+  </g>
+  <g fill="#ffd56c">
+    <circle cx="351" cy="474" r="7"/>
+    <circle cx="673" cy="474" r="7"/>
+  </g>
+</svg>

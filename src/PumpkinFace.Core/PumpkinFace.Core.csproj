@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>PumpkinFace.Core</RootNamespace>
+    <AssemblyName>PumpkinFace.Core</AssemblyName>
+  </PropertyGroup>
+</Project>
+
