@@ -1,5 +1,6 @@
 using Godot;
 using PumpkinFace.Core;
+using PumpkinFace.Display.Animation;
 using PumpkinFace.Display.App;
 
 namespace PumpkinFace.Display.UI;
@@ -56,6 +57,10 @@ public sealed partial class OperatorPanel : Control
     private Button? _outputButton;
     private Button? _fullscreenButton;
     private CheckButton? _autoplayToggle;
+    private LineEdit? _speechPhrase;
+    private Button? _speakButton;
+    private OptionButton? _speechVoicePicker;
+    private readonly List<string> _speechVoices = [];
     private HSlider? _emotionAmountSlider;
     private Label? _emotionAmountValue;
     private CheckButton? _guidesToggle;
@@ -69,6 +74,8 @@ public sealed partial class OperatorPanel : Control
     public event Action? NextEmotionRequested;
     public event Action<double>? EmotionAmountChanged;
     public event Action<SceneId, bool>? SceneSelectionChanged;
+    public event Action<string>? SpeakPhraseRequested;
+    public event Action<string>? SpeechVoiceChanged;
     public event Action<bool>? AutoplayChanged;
     public event Action<int>? DisplaySelected;
     public event Action? OutputToggleRequested;
@@ -184,6 +191,61 @@ public sealed partial class OperatorPanel : Control
         {
             toggle.SetPressedNoSignal(selected.Contains(scene));
         }
+    }
+
+    public void SetSpeechBusy(bool busy)
+    {
+        if (_speechPhrase is not null)
+        {
+            _speechPhrase.Editable = !busy;
+        }
+        if (_speakButton is not null)
+        {
+            _speakButton.Disabled = busy;
+            _speakButton.Text = busy ? "Preparing voice…" : "Speak phrase";
+        }
+    }
+
+    public void ClearSpeechPhrase()
+    {
+        if (_speechPhrase is not null)
+        {
+            _speechPhrase.Clear();
+        }
+    }
+
+    public void SetSpeechSceneLabel(string? phrase)
+    {
+        if (_sceneToggles.TryGetValue(SceneId.Talking, out CheckButton? toggle))
+        {
+            toggle.Text = string.IsNullOrWhiteSpace(phrase)
+                ? "Happy Halloween  [T]"
+                : $"Speaking — {Shorten(phrase, 32)}";
+        }
+    }
+
+    public void SetSpeechVoices(IEnumerable<string> voices, string selectedVoice)
+    {
+        _speechVoices.Clear();
+        _speechVoices.AddRange(voices);
+        if (_speechVoicePicker is null)
+        {
+            return;
+        }
+
+        _updating = true;
+        _speechVoicePicker.Clear();
+        int selectedIndex = 0;
+        for (int index = 0; index < _speechVoices.Count; index++)
+        {
+            _speechVoicePicker.AddItem(_speechVoices[index]);
+            if (_speechVoices[index] == selectedVoice)
+            {
+                selectedIndex = index;
+            }
+        }
+        _speechVoicePicker.Select(selectedIndex);
+        _updating = false;
     }
 
     public void SetGuides(bool enabled)
@@ -438,11 +500,46 @@ public sealed partial class OperatorPanel : Control
         GridContainer scenes = new() { Columns = 1 };
         AddActionSceneButton(scenes, "Looking  [L]", SceneId.Looking);
         AddActionSceneButton(scenes, "Blinking  [B]", SceneId.Blinking);
-        AddActionSceneButton(scenes, "Talking — Happy Halloween  [T]", SceneId.Talking);
+        AddActionSceneButton(scenes, "Happy Halloween  [T]", SceneId.Talking);
         AddActionSceneButton(scenes, "Candle sputter  [C]", SceneId.CandleSputter);
         content.AddChild(scenes);
+
+        content.AddChild(new HSeparator());
+        content.AddChild(new Label { Text = "Custom phrase", Modulate = new Color("c8c8cf") });
+        _speechVoicePicker = new OptionButton { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        _speechVoicePicker.ItemSelected += index =>
+        {
+            if (!_updating && index >= 0 && index < _speechVoices.Count)
+            {
+                SpeechVoiceChanged?.Invoke(_speechVoices[(int)index]);
+            }
+        };
+        content.AddChild(_speechVoicePicker);
+        _speechPhrase = new LineEdit
+        {
+            PlaceholderText = "Type what the pumpkin should say",
+            MaxLength = MacSpeechSynthesizer.MaximumPhraseLength,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+        };
+        _speechPhrase.TextSubmitted += _ => RequestTypedSpeech();
+        content.AddChild(_speechPhrase);
+        _speakButton = CreateButton("Speak phrase", RequestTypedSpeech);
+        _speakButton.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        content.AddChild(_speakButton);
         return WrapCard(content);
     }
+
+    private void RequestTypedSpeech()
+    {
+        string phrase = _speechPhrase?.Text.Trim() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(phrase))
+        {
+            SpeakPhraseRequested?.Invoke(phrase);
+        }
+    }
+
+    private static string Shorten(string value, int maximumLength) =>
+        value.Length <= maximumLength ? value : $"{value[..(maximumLength - 1)]}…";
 
     private Control BuildPumpkinLightingCard()
     {

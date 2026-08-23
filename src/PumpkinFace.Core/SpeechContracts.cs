@@ -1,7 +1,7 @@
 namespace PumpkinFace.Core;
 
 /// <summary>
-/// A compact, renderer-independent set of mouth shapes for future speech animation.
+/// A compact, renderer-independent set of mouth shapes for speech animation.
 /// </summary>
 public enum Viseme
 {

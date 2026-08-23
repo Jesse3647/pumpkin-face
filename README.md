@@ -1,6 +1,6 @@
 # Pumpkin Face
 
-Pumpkin Face is a GPU-accelerated jack-o-lantern face for projection onto a physical pumpkin. A private operator window controls a separate, clean output window while both display the same rendered framebuffer. The three emotion endpoints use vector contours traced from the reference artwork and morph as deformable geometry. The Talking scene performs a local, synchronized “Happy Halloween” voice line with distinct speech-mouth shapes.
+Pumpkin Face is a GPU-accelerated jack-o-lantern face for projection onto a physical pumpkin. A private operator window controls a separate, clean output window while both display the same rendered framebuffer. The three emotion endpoints use vector contours traced from the reference artwork and morph as deformable geometry. The speech controls perform a synchronized “Happy Halloween” preset or a locally synthesized custom phrase with distinct speech-mouth shapes.
 
 The traced carving is rendered on a lobed, hollow 3D pumpkin shell. Reference-matched eye sockets, pupils, catchlights, cut nose, and single-piece stepped mouth conform to the curved surface. Every opening has a soot-dark lip and visible shell thickness, revealing a candle-lit inner wall plus a modeled wax candle, wick, and animated flame. The flame, internal point light, rough-flesh bounce lighting, and soft opening halos share the same position and flicker. The exterior shell renders black but still writes depth: on a projector it contributes no synthetic pumpkin color, while pixel-accurate contour apertures reveal the interior and surrounding halos place a small amount of real light onto the physical pumpkin.
 
@@ -10,7 +10,7 @@ The face can switch between three clear emotions modeled after classic pumpkin-c
 - **Happy** opens into tall friendly eyes and a broad, toothy crescent smile.
 - **Sad** turns the eye peaks inward, lowers the gaze, and bends the mouth into a heavy frown.
 
-Emotions are selected independently and morph directly between traced expressions over 250 ms; there is no generated neutral face. The **Scenes** layer adds Looking, Blinking, Talking, and Candle Sputter without replacing the selected emotion. Scene controls can be combined—for example, Talking + Looking + Blinking. Looking, Blinking, and Candle Sputter loop while selected; Talking says “Happy Halloween” once, moves through closed, wide, and rounded vowel shapes, and then deselects itself. Scene autoplay chooses short randomized combinations at randomized intervals without changing the face's emotion or intensity.
+Emotions are selected independently and morph directly between traced expressions over 250 ms; there is no generated neutral face. The **Scenes** layer adds Looking, Blinking, Talking, and Candle Sputter without replacing the selected emotion. Scene controls can be combined—for example, Talking + Looking + Blinking. Looking, Blinking, and Candle Sputter loop while selected; Talking says “Happy Halloween” once, moves through closed, wide, and rounded vowel shapes, eases back to the active expression, and then deselects itself. The custom phrase field can synthesize up to 240 characters locally and performs the same one-shot mouth sequence and natural release. Its voice selector lists the installed natural English macOS voices and recommends Reed (English US) when available. Scene autoplay chooses short randomized combinations at randomized intervals without changing the face's emotion or intensity.
 
 ## Requirements
 
@@ -111,7 +111,7 @@ Run all deterministic core and persistence tests:
 dotnet test PumpkinFace.sln
 ```
 
-The suites cover command ordering and capacity, shuffle timing, interruption, same-scene retrigger and autoplay rules, pose interpolation and clamping, calibration validation, profile round trips/migration/recovery, and future speech timing contracts.
+The suites cover command ordering and capacity, shuffle timing, interruption, same-scene retrigger and autoplay rules, pose interpolation and clamping, calibration validation, profile round trips/migration/recovery, speech planning, and speech timing contracts.
 
 Use Godot headlessly for a resource/import/C# smoke check:
 
@@ -160,6 +160,6 @@ Only the macOS export preset is currently supplied. The application architecture
 
 ## V1 boundaries
 
-V1 includes one fixed, locally generated “Happy Halloween” performance. It does not yet include arbitrary speech, automatic lip-sync inference, remote control, a local AI model, camera-based alignment, keystone/corner-pin correction, sound effects, Developer ID signing, or notarization. Projection calibration is an affine move/scale/rotate adjustment rather than surface mapping.
+V1 includes a fixed “Happy Halloween” performance and locally generated typed speech on macOS. Typed speech uses deterministic text-to-viseme timing stretched to the measured audio duration; it does not include acoustic phoneme inference. Remote control, a local AI model, camera-based alignment, keystone/corner-pin correction, sound effects, Developer ID signing, and notarization are not included. Projection calibration is an affine move/scale/rotate adjustment rather than surface mapping.
 
 The project is intentionally scaffolded for those additions. See [Architecture and extension guide](docs/ARCHITECTURE.md) for the component boundaries and concrete next steps.

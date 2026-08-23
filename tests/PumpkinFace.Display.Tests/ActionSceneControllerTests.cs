@@ -121,6 +121,51 @@ public sealed class ActionSceneControllerTests
     }
 
     [Fact]
+    public void Talking_AcceptsAVisemePlanForACustomPhrase()
+    {
+        ActionSceneController controller = new(seed: 5);
+        VisemeFrame[] phrase =
+        [
+            new(TimeSpan.Zero, Viseme.Silence, 1f),
+            new(TimeSpan.FromSeconds(0.2), Viseme.Ah, 1f),
+            new(TimeSpan.FromSeconds(0.5), Viseme.Oh, 1f),
+            new(TimeSpan.FromSeconds(0.8), Viseme.Silence, 1f),
+        ];
+        controller.ConfigureSpeech(phrase, TimeSpan.FromSeconds(0.8));
+        controller.SetSelected(SceneId.Talking, true);
+
+        controller.Update(0.55);
+
+        Assert.True(controller.Frame.SpeechActive);
+        Assert.True(controller.Frame.MouthRoundness > 0.70f);
+
+        controller.Update(0.30);
+
+        Assert.False(controller.IsSelected(SceneId.Talking));
+        Assert.Equal(ActionSceneFrame.Rest, controller.Frame);
+    }
+
+    [Fact]
+    public void ExternallyTimedSpeech_EasesBackToTheExpressionBeforeClearing()
+    {
+        ActionSceneController controller = new(seed: 8) { ExternalSpeechCompletion = true };
+        controller.SetSelected(SceneId.Talking, true);
+        controller.Update(0.5);
+
+        controller.BeginSpeechRelease();
+        controller.Update(0.18);
+
+        Assert.True(controller.IsSelected(SceneId.Talking));
+        Assert.InRange(controller.Frame.SpeechBlend, 0.35f, 0.65f);
+        Assert.False(controller.Frame.SpeechActive);
+
+        controller.Update(0.20);
+
+        Assert.False(controller.IsSelected(SceneId.Talking));
+        Assert.Equal(ActionSceneFrame.Rest, controller.Frame);
+    }
+
+    [Fact]
     public void Stop_ClearsEverySelectionAndChannel()
     {
         ActionSceneController controller = new(seed: 77);

@@ -89,7 +89,7 @@ The queue rejects a new command when full rather than silently discarding a prev
 
 A manual emotion or **Next emotion** starts immediately. When it interrupts a running expression, the `AnimationTree` morphs directly to the new traced endpoint over 250 ms. After an emotion completes, its expression remains visible; no neutral face is generated.
 
-Action scenes are a separate composable overlay. `ActionSceneController` gives **Looking**, **Blinking**, **Talking**, and **Candle Sputter** independent clocks and channel state. Manual actions can therefore run in any combination without one action resetting another. Looking, Blinking, and Candle Sputter loop while selected. Talking performs its fixed local “Happy Halloween” clip once against a matching viseme timeline, including a fully rounded mouth pose, then removes its own selection. Scene autoplay waits a randomized interval, chooses a short randomized combination, and repeats without modifying the selected emotion or its intensity.
+Action scenes are a separate composable overlay. `ActionSceneController` gives **Looking**, **Blinking**, **Talking**, and **Candle Sputter** independent clocks and channel state. Manual actions can therefore run in any combination without one action resetting another. Looking, Blinking, and Candle Sputter loop while selected. Talking performs its fixed local “Happy Halloween” clip once against a matching viseme timeline, including a fully rounded mouth pose. When playback finishes, a smooth 360 ms speech blend restores the active expression before the Talking selection is removed. Scene autoplay waits a randomized interval, chooses a short randomized combination, and repeats without modifying the selected emotion or its intensity.
 
 Each expression has two equivalent state-machine nodes backed by the same authored clip. Re-triggering the scene that is already playing alternates to its partner node, allowing a real 250 ms crossfade back to the beginning; a self-transition would either be ignored or restart abruptly. Scene requests received in one command-drain batch are coalesced to the final request. If another request arrives during a crossfade, it waits for that fade to finish and stretches its normalized clip over the director's remaining scene time, preventing queued state-machine travel from drifting away from scheduler completion.
 
@@ -160,19 +160,11 @@ The capture path reads back a GPU `ViewportTexture`. Run it in an active windowe
 
 ### Speech and lip sync
 
-The core defines `Viseme`, timestamped/weighted `VisemeFrame`, and `IAudioClock`. `ActionSceneController` currently drives a hand-authored viseme timeline for the bundled “Happy Halloween” recording. `IAudioClock.AudiblePosition` remains available for future arbitrary speech, where output latency must be accounted for so mouth timing follows what the audience hears instead of the render frame.
+The core defines `Viseme`, timestamped/weighted `VisemeFrame`, and `IAudioClock`. `ActionSceneController` drives a hand-authored viseme timeline for the bundled “Happy Halloween” recording. `SpeechPhrasePlanner` converts typed text to a deterministic viseme sequence, which is stretched over the measured duration of a WAV synthesized asynchronously by macOS. `MacSpeechSynthesizer` discovers installed natural English voices, passes the operator's selection to the system synthesizer, and defaults to Reed (English US) when available. Runtime mouth evaluation follows the audio player's position with output latency removed, so the audible clip remains the master clock rather than accumulated render delta.
 
 `SceneAnimationController` also reserves a filtered `SpeechMouthLayer` in its `AnimationTree`. That additive layer is limited to `JawOpen`, `MouthWidth`, `MouthRoundness`, `LeftMouthCorner`, and `RightMouthCorner`; gaze, eyelids, brows, tremble, and lighting remain owned by the expression beneath it.
 
-A concrete arbitrary-speech implementation should:
-
-1. Add an `IAudioClock` adapter around the existing Godot audio playback using playback position and measured output latency.
-2. Convert phoneme timing or an offline lip-sync model into ordered `VisemeFrame` values.
-3. Interpolate neighboring frames against `AudiblePosition`.
-4. Map each viseme to the five normalized mouth channels.
-5. Replace/feed the current `SpeechRest` input and raise the speech-layer blend amount only while speech is active.
-
-Audio must remain the master clock. Do not advance visemes by accumulating render-frame delta.
+The typed-speech path intentionally uses spelling-based approximation so it remains local, fast, and dependency-free. A higher-fidelity extension can replace `SpeechPhrasePlanner` with phoneme timing from a forced aligner or offline lip-sync model while preserving the same ordered `VisemeFrame` boundary. The existing direct mouth-pose application can also move into the reserved `SpeechMouthLayer` without changing scene composition. Audio must remain the master clock; visemes should never advance solely by accumulating render-frame delta.
 
 ### Remote web control
 

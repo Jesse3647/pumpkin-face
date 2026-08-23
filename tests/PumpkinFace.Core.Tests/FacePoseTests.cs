@@ -34,6 +34,7 @@ public sealed class FacePoseTests
             JawOpen = 2f,
             MouthWidth = -2f,
             MouthRoundness = 5f,
+            SpeechBlend = 3f,
             LeftMouthCorner = -5f,
             RightMouthCorner = 5f,
             Tremble = 9f,
@@ -52,6 +53,7 @@ public sealed class FacePoseTests
         Assert.Equal(1f, pose.JawOpen);
         Assert.Equal(0f, pose.MouthWidth);
         Assert.Equal(1f, pose.MouthRoundness);
+        Assert.Equal(1f, pose.SpeechBlend);
         Assert.Equal(-1f, pose.LeftMouthCorner);
         Assert.Equal(1f, pose.RightMouthCorner);
         Assert.Equal(1f, pose.Tremble);

@@ -10,7 +10,8 @@ public readonly record struct ActionSceneFrame(
     float LightingMultiplier,
     bool SpeechActive = false,
     float MouthWidth = 0.5f,
-    float MouthRoundness = 0.22f)
+    float MouthRoundness = 0.22f,
+    float SpeechBlend = 0f)
 {
     public static ActionSceneFrame Rest { get; } = new(Vector2.Zero, 1f, 0f, 1f);
 }
@@ -43,6 +44,8 @@ public sealed class ActionSceneController
     private readonly Random _random;
     private readonly HashSet<SceneId> _selectedScenes = [];
     private readonly Dictionary<SceneId, SceneState> _states = [];
+    private PhraseKeyframe[] _speechTimeline = [.. HappyHalloween];
+    private double _speechDuration = 4.07d;
     private double _autoplayDelay;
     private bool _manualSelection;
 
@@ -53,9 +56,76 @@ public sealed class ActionSceneController
     public IReadOnlySet<SceneId> SelectedScenes => _selectedScenes;
     public IReadOnlyCollection<SceneId> ActiveScenes => _states.Keys;
     public bool AutoplayEnabled { get; private set; }
+    public bool ExternalSpeechCompletion { get; set; }
     public ActionSceneFrame Frame { get; private set; } = ActionSceneFrame.Rest;
 
     public bool IsSelected(SceneId scene) => _selectedScenes.Contains(scene);
+
+    public void UseDefaultSpeech()
+    {
+        _speechTimeline = [.. HappyHalloween];
+        _speechDuration = 4.07d;
+    }
+
+    public void ConfigureSpeech(IEnumerable<VisemeFrame> frames, TimeSpan duration)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+        if (duration <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(duration));
+        }
+
+        _speechDuration = Math.Clamp(duration.TotalSeconds, 0.20d, 120d);
+        _speechTimeline = frames
+            .Select(frame => frame.Normalize())
+            .OrderBy(frame => frame.Timestamp)
+            .Select(frame => new PhraseKeyframe(
+                Math.Clamp(frame.Timestamp.TotalSeconds, 0d, _speechDuration),
+                frame.Shape))
+            .ToArray();
+        if (_speechTimeline.Length == 0 || _speechTimeline[0].Timestamp > 0d)
+        {
+            _speechTimeline = [new PhraseKeyframe(0d, Viseme.Silence), .. _speechTimeline];
+        }
+        if (_speechTimeline.Length == 1 || _speechTimeline[^1].Timestamp < _speechDuration)
+        {
+            _speechTimeline = [.. _speechTimeline, new PhraseKeyframe(_speechDuration, Viseme.Silence)];
+        }
+    }
+
+    public void SynchronizeSpeech(TimeSpan playbackPosition)
+    {
+        if (!_states.TryGetValue(SceneId.Talking, out SceneState? state))
+        {
+            return;
+        }
+
+        state.Elapsed = Math.Clamp(playbackPosition.TotalSeconds, 0d, state.Duration);
+        UpdateTalking(state);
+        ComposeFrame();
+    }
+
+    public void CompleteSpeech()
+    {
+        _selectedScenes.Remove(SceneId.Talking);
+        _states.Remove(SceneId.Talking);
+        _manualSelection = _selectedScenes.Count > 0;
+        ComposeFrame();
+    }
+
+    public void BeginSpeechRelease()
+    {
+        if (!_states.TryGetValue(SceneId.Talking, out SceneState? state))
+        {
+            return;
+        }
+
+        state.SpeechReleasing = true;
+        state.TransitionElapsed = 0d;
+        state.TransitionDuration = 0.36d;
+        state.Frame = state.Frame with { SpeechActive = false, SpeechBlend = 1f };
+        ComposeFrame();
+    }
 
     public void SetAutoplay(bool enabled)
     {
@@ -150,9 +220,22 @@ public sealed class ActionSceneController
                 SceneState state = _states[scene];
                 state.Elapsed += step;
                 UpdateState(scene, state, step);
+                if (scene == SceneId.Talking &&
+                    state.SpeechReleasing &&
+                    state.TransitionElapsed >= state.TransitionDuration)
+                {
+                    _selectedScenes.Remove(scene);
+                    _states.Remove(scene);
+                    _manualSelection = _selectedScenes.Count > 0;
+                    continue;
+                }
                 if (state.Elapsed >= state.Duration)
                 {
-                    if (scene == SceneId.Talking)
+                    if (scene == SceneId.Talking && ExternalSpeechCompletion)
+                    {
+                        state.Elapsed = state.Duration;
+                    }
+                    else if (scene == SceneId.Talking)
                     {
                         _selectedScenes.Remove(scene);
                         _states.Remove(scene);
@@ -197,6 +280,7 @@ public sealed class ActionSceneController
                 JawOpen = rest.JawOpen,
                 MouthWidth = rest.Width,
                 MouthRoundness = rest.Roundness,
+                SpeechBlend = 1f,
             };
         }
         else if (scene == SceneId.CandleSputter)
@@ -218,7 +302,14 @@ public sealed class ActionSceneController
                 UpdateBlinking(state, step);
                 break;
             case SceneId.Talking:
-                UpdateTalking(state);
+                if (state.SpeechReleasing)
+                {
+                    UpdateSpeechRelease(state, step);
+                }
+                else
+                {
+                    UpdateTalking(state);
+                }
                 break;
             case SceneId.CandleSputter:
                 UpdateCandleSputter(state, step);
@@ -282,17 +373,17 @@ public sealed class ActionSceneController
         }
     }
 
-    private static void UpdateTalking(SceneState state)
+    private void UpdateTalking(SceneState state)
     {
         int nextIndex = 1;
-        while (nextIndex < HappyHalloween.Length - 1 &&
-               state.Elapsed >= HappyHalloween[nextIndex].Timestamp)
+        while (nextIndex < _speechTimeline.Length - 1 &&
+               state.Elapsed >= _speechTimeline[nextIndex].Timestamp)
         {
             nextIndex++;
         }
 
-        PhraseKeyframe from = HappyHalloween[nextIndex - 1];
-        PhraseKeyframe to = HappyHalloween[nextIndex];
+        PhraseKeyframe from = _speechTimeline[nextIndex - 1];
+        PhraseKeyframe to = _speechTimeline[nextIndex];
         float amount = Smooth((float)Math.Clamp(
             (state.Elapsed - from.Timestamp) / Math.Max(0.001d, to.Timestamp - from.Timestamp),
             0d,
@@ -304,6 +395,18 @@ public sealed class ActionSceneController
             SpeechActive = true,
             MouthWidth = mouth.Width,
             MouthRoundness = mouth.Roundness,
+            SpeechBlend = 1f,
+        };
+    }
+
+    private static void UpdateSpeechRelease(SceneState state, double step)
+    {
+        state.TransitionElapsed = Math.Min(state.TransitionDuration, state.TransitionElapsed + step);
+        float amount = Smooth((float)(state.TransitionElapsed / state.TransitionDuration));
+        state.Frame = state.Frame with
+        {
+            SpeechActive = false,
+            SpeechBlend = 1f - amount,
         };
     }
 
@@ -339,6 +442,7 @@ public sealed class ActionSceneController
                 SpeechActive = talking.Frame.SpeechActive,
                 MouthWidth = talking.Frame.MouthWidth,
                 MouthRoundness = talking.Frame.MouthRoundness,
+                SpeechBlend = talking.Frame.SpeechBlend,
             };
         }
         if (_states.TryGetValue(SceneId.CandleSputter, out SceneState? candle))
@@ -403,11 +507,11 @@ public sealed class ActionSceneController
     private static float FadeOut(double remaining, float fadeDuration) =>
         Mathf.Clamp((float)Math.Min(1d, remaining / fadeDuration), 0f, 1f);
     private static float Smooth(float amount) => amount * amount * (3f - 2f * amount);
-    private static double DurationFor(SceneId scene) => scene switch
+    private double DurationFor(SceneId scene) => scene switch
     {
         SceneId.Looking => 12.0d,
         SceneId.Blinking => 10.0d,
-        SceneId.Talking => 4.07d,
+        SceneId.Talking => _speechDuration,
         SceneId.CandleSputter => 7.0d,
         _ => throw new ArgumentOutOfRangeException(nameof(scene), scene, "Unknown action scene."),
     };
@@ -454,6 +558,7 @@ public sealed class ActionSceneController
         public float LightFrom { get; set; } = 1f;
         public float LightTarget { get; set; } = 1f;
         public bool Blinking { get; set; }
+        public bool SpeechReleasing { get; set; }
         public ActionSceneFrame Frame { get; set; } = ActionSceneFrame.Rest;
     }
 }

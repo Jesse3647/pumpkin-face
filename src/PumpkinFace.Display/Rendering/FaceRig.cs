@@ -555,13 +555,17 @@ public sealed partial class FaceRig : Node2D
         Vector2 rightEyeCenter = CenterOf(shape.RightEye);
         Vector2 mouthCenter = CenterOf(shape.Mouth);
         Vector2[] mouth = ScaleContour(shape.Mouth, mouthCenter, new Vector2(mouthX, mouthY));
-        if (_pose.MouthRoundness >= 0.20f)
+        if (_pose.SpeechBlend > 0f)
         {
             float speechWidth = Mathf.Lerp(0.42f, 1.12f, _pose.MouthWidth);
             float speechHeight = Mathf.Lerp(0.07f, 0.90f, _pose.JawOpen);
-            mouth = ScaleContour(shape.Mouth, mouthCenter, new Vector2(speechWidth, speechHeight));
+            Vector2[] speechMouth = ScaleContour(
+                shape.Mouth,
+                mouthCenter,
+                new Vector2(speechWidth, speechHeight));
             float rounding = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.34f, 0.92f, _pose.MouthRoundness));
-            mouth = RoundContourTowardEllipse(mouth, mouthCenter, rounding);
+            speechMouth = RoundContourTowardEllipse(speechMouth, mouthCenter, rounding);
+            mouth = BlendContours(mouth, speechMouth, Smooth(_pose.SpeechBlend));
         }
 
         return shape with
@@ -583,6 +587,8 @@ public sealed partial class FaceRig : Node2D
 
     private static Vector2 ScalePoint(Vector2 point, Vector2 center, Vector2 scale) =>
         center + (point - center) * scale;
+
+    private static float Smooth(float amount) => amount * amount * (3f - 2f * amount);
 
     private static Vector2[] RoundContourTowardEllipse(
         Vector2[] points,

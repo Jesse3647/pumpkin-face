@@ -44,6 +44,8 @@ public readonly record struct FacePose
 
     public float MouthRoundness { get; init; }
 
+    public float SpeechBlend { get; init; }
+
     public float LeftMouthCorner { get; init; }
 
     public float RightMouthCorner { get; init; }
@@ -81,6 +83,7 @@ public readonly record struct FacePose
             JawOpen = ClampUnit(JawOpen, fallback.JawOpen),
             MouthWidth = ClampUnit(MouthWidth, fallback.MouthWidth),
             MouthRoundness = ClampUnit(MouthRoundness, fallback.MouthRoundness),
+            SpeechBlend = ClampUnit(SpeechBlend, fallback.SpeechBlend),
             LeftMouthCorner = ClampSigned(LeftMouthCorner, fallback.LeftMouthCorner),
             RightMouthCorner = ClampSigned(RightMouthCorner, fallback.RightMouthCorner),
             Tremble = ClampUnit(Tremble, fallback.Tremble),
@@ -144,6 +147,7 @@ public readonly record struct FacePose
                 JawOpen = Mix(start.JawOpen, end.JawOpen, t),
                 MouthWidth = Mix(start.MouthWidth, end.MouthWidth, t),
                 MouthRoundness = Mix(start.MouthRoundness, end.MouthRoundness, t),
+                SpeechBlend = Mix(start.SpeechBlend, end.SpeechBlend, t),
                 LeftMouthCorner = Mix(start.LeftMouthCorner, end.LeftMouthCorner, t),
                 RightMouthCorner = Mix(start.RightMouthCorner, end.RightMouthCorner, t),
             };

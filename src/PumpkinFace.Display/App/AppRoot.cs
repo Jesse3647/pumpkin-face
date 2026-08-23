@@ -25,6 +25,10 @@ public sealed partial class AppRoot : Node
     private ProjectorHost? _projector;
     private OperatorPanel? _operator;
     private AudioStreamPlayer? _speechPlayer;
+    private AudioStream? _happyHalloweenStream;
+    private Task<SpeechSynthesisResult>? _speechSynthesisTask;
+    private string _speechVoice = MacSpeechSynthesizer.SystemDefaultVoice;
+    private bool _speechWasActive;
     private double _fpsRefreshElapsed;
     private bool _shuttingDown;
     private string? _pendingPersistenceError;
@@ -48,16 +52,18 @@ public sealed partial class AppRoot : Node
 
         _stage = new FaceStage { Name = "FaceStage" };
         _animations = new SceneAnimationController { Name = "SceneAnimations" };
-        _actionScenes = new ActionSceneController();
+        _actionScenes = new ActionSceneController { ExternalSpeechCompletion = true };
         _actionScenes.SetAutoplay(load.State.AutoplayEnabled);
         _projector = new ProjectorHost { Name = "ProjectorHost" };
         _operator = new OperatorPanel { Name = "OperatorPanel" };
+        _happyHalloweenStream = GD.Load<AudioStream>(HappyHalloweenAudioPath);
         _speechPlayer = new AudioStreamPlayer
         {
             Name = "HappyHalloweenVoice",
-            Stream = GD.Load<AudioStream>(HappyHalloweenAudioPath),
+            Stream = _happyHalloweenStream,
             VolumeDb = -1.5f,
         };
+        _speechPlayer.Finished += OnSpeechFinished;
         AddChild(_stage);
         AddChild(_animations);
         AddChild(_projector);
@@ -77,6 +83,11 @@ public sealed partial class AppRoot : Node
         _stage.ShowGuides = false;
         _operator.SetPreviewTexture(_stage.Texture);
         _operator.SetAutoplay(load.State.AutoplayEnabled);
+        IReadOnlyList<string> speechVoices = MacSpeechSynthesizer.FindAvailableNaturalVoices();
+        _speechVoice = speechVoices.Contains(MacSpeechSynthesizer.RecommendedVoice)
+            ? MacSpeechSynthesizer.RecommendedVoice
+            : speechVoices[0];
+        _operator.SetSpeechVoices(speechVoices, _speechVoice);
         _operator.SetGuides(false);
         _projector.SetTexture(_stage.Texture);
         RefreshProfilesAndCalibration();
@@ -127,14 +138,26 @@ public sealed partial class AppRoot : Node
             return;
         }
 
+        CompleteSpeechSynthesisIfReady();
         DrainCommands();
         _director.Update(TimeSpan.FromSeconds(Math.Max(0d, delta)));
         _animations.Synchronize(_director.Snapshot);
         bool talkingWasSelected = _actionScenes!.IsSelected(SceneId.Talking);
         _actionScenes!.Update(delta);
+        if (_speechPlayer?.Playing == true)
+        {
+            double audiblePosition = Math.Max(
+                0d,
+                _speechPlayer.GetPlaybackPosition() +
+                AudioServer.GetTimeSinceLastMix() -
+                AudioServer.GetOutputLatency());
+            _actionScenes.SynchronizeSpeech(TimeSpan.FromSeconds(audiblePosition));
+        }
         if (talkingWasSelected && !_actionScenes.IsSelected(SceneId.Talking))
         {
             _operator.SetSelectedScenes(_actionScenes.SelectedScenes);
+            _operator.SetSpeechSceneLabel(null);
+            _operator.SetStatus("Phrase finished");
         }
         ActionSceneFrame action = _actionScenes.Frame;
         FacePose expressionPose = _animations.CurrentPose;
@@ -146,13 +169,17 @@ public sealed partial class AppRoot : Node
             RightGazeY = action.Gaze.Y,
             LeftEyelidOpen = action.EyelidOpen,
             RightEyelidOpen = action.EyelidOpen,
-            JawOpen = action.JawOpen,
-            MouthWidth = action.SpeechActive ? action.MouthWidth : expressionPose.MouthWidth,
-            MouthRoundness = action.SpeechActive ? action.MouthRoundness : expressionPose.MouthRoundness,
+            JawOpen = Mathf.Lerp(0f, action.JawOpen, action.SpeechBlend),
+            MouthWidth = Mathf.Lerp(expressionPose.MouthWidth, action.MouthWidth, action.SpeechBlend),
+            MouthRoundness = Mathf.Lerp(
+                expressionPose.MouthRoundness,
+                action.MouthRoundness,
+                action.SpeechBlend),
+            SpeechBlend = action.SpeechBlend,
             LightingIntensity = _animations.CurrentPose.LightingIntensity * action.LightingMultiplier,
         };
         _stage.SetPose(displayedPose);
-        UpdateSpeechAudio(_actionScenes.ActiveScenes.Contains(SceneId.Talking));
+        UpdateSpeechAudio(action.SpeechActive);
 
         string? persistenceError = Interlocked.Exchange(ref _pendingPersistenceError, null);
         if (persistenceError is not null)
@@ -262,6 +289,8 @@ public sealed partial class AppRoot : Node
         _operator.EmotionAmountChanged += amount => Post(new SetEmotionAmountCommand((float)amount));
         _operator.SceneSelectionChanged += (scene, enabled) =>
             Post(new SetSceneEnabledCommand(scene, enabled));
+        _operator.SpeakPhraseRequested += phrase => Post(new SpeakPhraseCommand(phrase));
+        _operator.SpeechVoiceChanged += voice => _speechVoice = voice;
         _operator.AutoplayChanged += enabled => Post(new SetAutoplayCommand(enabled));
         _operator.DisplaySelected += SelectDisplay;
         _operator.OutputToggleRequested += ToggleOutput;
@@ -329,6 +358,13 @@ public sealed partial class AppRoot : Node
 
             if (command is SetSceneEnabledCommand scene)
             {
+                if (scene is { Scene: SceneId.Talking, Enabled: true })
+                {
+                    _actionScenes!.UseDefaultSpeech();
+                    _speechPlayer!.Stop();
+                    _speechPlayer.Stream = _happyHalloweenStream;
+                    _operator!.SetSpeechSceneLabel(null);
+                }
                 _actionScenes!.SetSelected(scene.Scene, scene.Enabled);
                 if (scene.Enabled)
                 {
@@ -339,8 +375,21 @@ public sealed partial class AppRoot : Node
                 continue;
             }
 
+            if (command is SpeakPhraseCommand speech)
+            {
+                BeginSpeechSynthesis(speech.Phrase);
+                continue;
+            }
+
             if (command is SetAutoplayCommand autoplay)
             {
+                if (autoplay.Enabled)
+                {
+                    _actionScenes!.UseDefaultSpeech();
+                    _speechPlayer!.Stop();
+                    _speechPlayer.Stream = _happyHalloweenStream;
+                    _operator!.SetSpeechSceneLabel(null);
+                }
                 _actionScenes!.SetAutoplay(autoplay.Enabled);
                 _profiles!.SetAutoplayEnabled(autoplay.Enabled);
                 _operator!.SetAutoplay(autoplay.Enabled);
@@ -384,13 +433,76 @@ public sealed partial class AppRoot : Node
             return;
         }
 
-        if (talkingActive && !_speechPlayer.Playing)
+        if (talkingActive && !_speechWasActive)
         {
             _speechPlayer.Play();
         }
-        else if (!talkingActive && _speechPlayer.Playing)
+        else if (!talkingActive && _speechWasActive && _speechPlayer.Playing)
         {
             _speechPlayer.Stop();
+        }
+        _speechWasActive = talkingActive;
+    }
+
+    private void BeginSpeechSynthesis(string phrase)
+    {
+        if (_speechSynthesisTask is { IsCompleted: false })
+        {
+            _operator?.SetStatus("A phrase is already being prepared", warning: true);
+            return;
+        }
+
+        string normalized = phrase.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return;
+        }
+
+        _actionScenes!.SetAutoplay(false);
+        _actionScenes.SetSelected(SceneId.Talking, false);
+        _speechPlayer!.Stop();
+        _profiles!.SetAutoplayEnabled(false);
+        _operator!.SetAutoplay(false);
+        _operator.SetSelectedScenes(_actionScenes.SelectedScenes);
+        _operator.SetSpeechBusy(true);
+        _operator.SetStatus("Preparing the pumpkin's voice…");
+        _speechSynthesisTask = MacSpeechSynthesizer.SynthesizeAsync(normalized, _speechVoice);
+    }
+
+    private void CompleteSpeechSynthesisIfReady()
+    {
+        if (_speechSynthesisTask is not { IsCompleted: true } completed)
+        {
+            return;
+        }
+
+        _speechSynthesisTask = null;
+        _operator!.SetSpeechBusy(false);
+        try
+        {
+            SpeechSynthesisResult result = completed.GetAwaiter().GetResult();
+            AudioStreamWav stream = AudioStreamWav.LoadFromFile(result.WavePath);
+            TimeSpan duration = TimeSpan.FromSeconds(stream.GetLength());
+            _actionScenes!.ConfigureSpeech(SpeechPhrasePlanner.Plan(result.Phrase, duration), duration);
+            _speechPlayer!.Stream = stream;
+            _actionScenes.SetSelected(SceneId.Talking, true);
+            _operator.SetSelectedScenes(_actionScenes.SelectedScenes);
+            _operator.SetSpeechSceneLabel(result.Phrase);
+            _operator.ClearSpeechPhrase();
+            _operator.SetStatus($"Speaking: “{result.Phrase}”");
+        }
+        catch (Exception exception)
+        {
+            _operator.SetStatus($"Could not prepare speech: {exception.Message}", warning: true);
+        }
+    }
+
+    private void OnSpeechFinished()
+    {
+        _actionScenes?.BeginSpeechRelease();
+        if (_operator is not null && _actionScenes is not null)
+        {
+            _operator.SetStatus("Phrase finished — returning to the resting face");
         }
     }
 

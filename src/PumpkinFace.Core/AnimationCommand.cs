@@ -14,6 +14,8 @@ public sealed record SetEmotionAmountCommand(float Amount) : AnimationCommand;
 
 public sealed record SetSceneEnabledCommand(SceneId Scene, bool Enabled) : AnimationCommand;
 
+public sealed record SpeakPhraseCommand(string Phrase) : AnimationCommand;
+
 public sealed record SetAutoplayCommand(bool Enabled) : AnimationCommand;
 
 public sealed record StopCommand : AnimationCommand;
