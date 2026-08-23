@@ -89,7 +89,7 @@ The queue rejects a new command when full rather than silently discarding a prev
 
 A manual emotion or **Next emotion** starts immediately. When it interrupts a running expression, the `AnimationTree` morphs directly to the new traced endpoint over 250 ms. After an emotion completes, its expression remains visible; no neutral face is generated.
 
-Action scenes are a separate composable overlay. `ActionSceneController` gives **Looking**, **Blinking**, **Talking**, and **Candle Sputter** independent clocks and channel state. Manual toggles can therefore loop in any combination without one action resetting another. Scene autoplay waits a randomized interval, chooses a short randomized combination, and repeats without modifying the selected emotion or its intensity.
+Action scenes are a separate composable overlay. `ActionSceneController` gives **Looking**, **Blinking**, **Talking**, and **Candle Sputter** independent clocks and channel state. Manual actions can therefore run in any combination without one action resetting another. Looking, Blinking, and Candle Sputter loop while selected. Talking performs its fixed local “Happy Halloween” clip once against a matching viseme timeline, including a fully rounded mouth pose, then removes its own selection. Scene autoplay waits a randomized interval, chooses a short randomized combination, and repeats without modifying the selected emotion or its intensity.
 
 Each expression has two equivalent state-machine nodes backed by the same authored clip. Re-triggering the scene that is already playing alternates to its partner node, allowing a real 250 ms crossfade back to the beginning; a self-transition would either be ignored or restart abruptly. Scene requests received in one command-drain batch are coalesced to the final request. If another request arrives during a crossfade, it waits for that fade to finish and stretches its normalized clip over the director's remaining scene time, preventing queued state-machine travel from drifting away from scheduler completion.
 
@@ -97,7 +97,7 @@ Every authored scene is a normalized one-second clip. Its expression node stretc
 
 Tracks use channel-appropriate interpolation. Gaze, eyelid, and tremble beats use linear keys with tightly spaced moves and explicit holds for readable darts, blinks, and accents. Brows, pupils, mouth shapes, and candle intensity retain cubic interpolation for organic settling and restrained light changes.
 
-The `AnimationTree` evaluates three independent layers. An always-running ambient baseline supplies subtle candle variation. The expression state machine is converted to a delta by subtracting a constant numerical reference pose, then added to that baseline. This reference is only animation math and is never rendered as a fourth face. A final filtered `SpeechMouthLayer` is currently silent and is restricted to the five mouth controls reserved for future visemes. Deterministic mixing keeps the additive math unnormalized.
+The `AnimationTree` evaluates three independent layers. An always-running ambient baseline supplies subtle candle variation. The expression state machine is converted to a delta by subtracting a constant numerical reference pose, then added to that baseline. This reference is only animation math and is never rendered as a fourth face. A final filtered `SpeechMouthLayer` is restricted to the five mouth controls reserved for visemes. The fixed Talking performance currently supplies these channels directly to the rendered pose. Deterministic mixing keeps the additive math unnormalized.
 
 ## Rendering pipeline
 
@@ -160,13 +160,13 @@ The capture path reads back a GPU `ViewportTexture`. Run it in an active windowe
 
 ### Speech and lip sync
 
-The core already defines `Viseme`, timestamped/weighted `VisemeFrame`, and `IAudioClock`. `IAudioClock.AudiblePosition` accounts for output latency so mouth timing can follow what the audience hears instead of the render frame.
+The core defines `Viseme`, timestamped/weighted `VisemeFrame`, and `IAudioClock`. `ActionSceneController` currently drives a hand-authored viseme timeline for the bundled “Happy Halloween” recording. `IAudioClock.AudiblePosition` remains available for future arbitrary speech, where output latency must be accounted for so mouth timing follows what the audience hears instead of the render frame.
 
 `SceneAnimationController` also reserves a filtered `SpeechMouthLayer` in its `AnimationTree`. That additive layer is limited to `JawOpen`, `MouthWidth`, `MouthRoundness`, `LeftMouthCorner`, and `RightMouthCorner`; gaze, eyelids, brows, tremble, and lighting remain owned by the expression beneath it.
 
-A concrete next implementation should:
+A concrete arbitrary-speech implementation should:
 
-1. Add a Godot `AudioStreamPlayer` and an `IAudioClock` adapter using playback position and measured output latency.
+1. Add an `IAudioClock` adapter around the existing Godot audio playback using playback position and measured output latency.
 2. Convert phoneme timing or an offline lip-sync model into ordered `VisemeFrame` values.
 3. Interpolate neighboring frames against `AudiblePosition`.
 4. Map each viseme to the five normalized mouth channels.

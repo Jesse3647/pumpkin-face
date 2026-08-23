@@ -553,11 +553,22 @@ public sealed partial class FaceRig : Node2D
             eyeY * Mathf.Lerp(0.055f, 1f, _pose.RightEyelidOpen));
         Vector2 leftEyeCenter = CenterOf(shape.LeftEye);
         Vector2 rightEyeCenter = CenterOf(shape.RightEye);
+        Vector2 mouthCenter = CenterOf(shape.Mouth);
+        Vector2[] mouth = ScaleContour(shape.Mouth, mouthCenter, new Vector2(mouthX, mouthY));
+        if (_pose.MouthRoundness >= 0.20f)
+        {
+            float speechWidth = Mathf.Lerp(0.42f, 1.12f, _pose.MouthWidth);
+            float speechHeight = Mathf.Lerp(0.07f, 0.90f, _pose.JawOpen);
+            mouth = ScaleContour(shape.Mouth, mouthCenter, new Vector2(speechWidth, speechHeight));
+            float rounding = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.34f, 0.92f, _pose.MouthRoundness));
+            mouth = RoundContourTowardEllipse(mouth, mouthCenter, rounding);
+        }
+
         return shape with
         {
             LeftEye = ScaleContour(shape.LeftEye, leftEyeCenter, leftEyeScale),
             RightEye = ScaleContour(shape.RightEye, rightEyeCenter, rightEyeScale),
-            Mouth = ScaleContour(shape.Mouth, CenterOf(shape.Mouth), new Vector2(mouthX, mouthY)),
+            Mouth = mouth,
             LeftPupil = ScalePoint(shape.LeftPupil, leftEyeCenter, leftEyeScale),
             RightPupil = ScalePoint(shape.RightPupil, rightEyeCenter, rightEyeScale),
             LeftCatchlight = ScalePoint(shape.LeftCatchlight, leftEyeCenter, leftEyeScale),
@@ -572,6 +583,31 @@ public sealed partial class FaceRig : Node2D
 
     private static Vector2 ScalePoint(Vector2 point, Vector2 center, Vector2 scale) =>
         center + (point - center) * scale;
+
+    private static Vector2[] RoundContourTowardEllipse(
+        Vector2[] points,
+        Vector2 center,
+        float amount)
+    {
+        if (amount <= 0f)
+        {
+            return points;
+        }
+
+        float radiusX = Mathf.Max(1f, points.Max(point => Mathf.Abs(point.X - center.X)));
+        float radiusY = Mathf.Max(1f, points.Max(point => Mathf.Abs(point.Y - center.Y)));
+        float roundedRadiusX = radiusX * Mathf.Lerp(1f, 0.55f, amount);
+        float roundedRadiusY = radiusY * Mathf.Lerp(1f, 1.12f, amount);
+        return points.Select(point =>
+        {
+            Vector2 delta = point - center;
+            float angle = Mathf.Atan2(delta.Y / radiusY, delta.X / radiusX);
+            Vector2 ellipse = center + new Vector2(
+                Mathf.Cos(angle) * roundedRadiusX,
+                Mathf.Sin(angle) * roundedRadiusY);
+            return point.Lerp(ellipse, amount);
+        }).ToArray();
+    }
 
     private static ReferenceFaceShape BlendReferenceShapes(
         ReferenceFaceShape from,

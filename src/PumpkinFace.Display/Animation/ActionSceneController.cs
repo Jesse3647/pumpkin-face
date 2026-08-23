@@ -7,7 +7,10 @@ public readonly record struct ActionSceneFrame(
     Vector2 Gaze,
     float EyelidOpen,
     float JawOpen,
-    float LightingMultiplier)
+    float LightingMultiplier,
+    bool SpeechActive = false,
+    float MouthWidth = 0.5f,
+    float MouthRoundness = 0.22f)
 {
     public static ActionSceneFrame Rest { get; } = new(Vector2.Zero, 1f, 0f, 1f);
 }
@@ -20,6 +23,23 @@ public readonly record struct ActionSceneFrame(
 public sealed class ActionSceneController
 {
     private static readonly SceneId[] Scenes = Enum.GetValues<SceneId>();
+    private static readonly PhraseKeyframe[] HappyHalloween =
+    [
+        new(0.00d, Viseme.Silence),
+        new(0.05d, Viseme.Ah),
+        new(0.30d, Viseme.Mbp),
+        new(0.37d, Viseme.Ih),
+        new(0.62d, Viseme.Silence),
+        new(0.69d, Viseme.Ah),
+        new(0.87d, Viseme.Eh),
+        new(0.98d, Viseme.L),
+        new(1.08d, Viseme.Oh),
+        new(1.18d, Viseme.Wq),
+        new(1.32d, Viseme.Ih),
+        new(1.52d, Viseme.DnSt),
+        new(1.65d, Viseme.Silence),
+        new(4.07d, Viseme.Silence),
+    ];
     private readonly Random _random;
     private readonly HashSet<SceneId> _selectedScenes = [];
     private readonly Dictionary<SceneId, SceneState> _states = [];
@@ -132,7 +152,13 @@ public sealed class ActionSceneController
                 UpdateState(scene, state, step);
                 if (state.Elapsed >= state.Duration)
                 {
-                    if (_manualSelection && _selectedScenes.Contains(scene))
+                    if (scene == SceneId.Talking)
+                    {
+                        _selectedScenes.Remove(scene);
+                        _states.Remove(scene);
+                        _manualSelection = _selectedScenes.Count > 0;
+                    }
+                    else if (_manualSelection && _selectedScenes.Contains(scene))
                     {
                         _states[scene] = StartState(scene);
                     }
@@ -161,6 +187,17 @@ public sealed class ActionSceneController
         else if (scene == SceneId.Blinking)
         {
             state.EventTimer = Next(0.35d, 1.10d);
+        }
+        else if (scene == SceneId.Talking)
+        {
+            MouthPose rest = PoseFor(Viseme.Silence);
+            state.Frame = state.Frame with
+            {
+                SpeechActive = true,
+                JawOpen = rest.JawOpen,
+                MouthWidth = rest.Width,
+                MouthRoundness = rest.Roundness,
+            };
         }
         else if (scene == SceneId.CandleSputter)
         {
@@ -247,15 +284,26 @@ public sealed class ActionSceneController
 
     private static void UpdateTalking(SceneState state)
     {
-        double remaining = state.Duration - state.Elapsed;
-        float syllable = Mathf.Max(0f, Mathf.Sin((float)state.Elapsed * 10.7f));
-        syllable = Mathf.Clamp(
-            syllable * 0.78f + Mathf.Sin((float)state.Elapsed * 4.1f + 0.8f) * 0.10f,
-            0f,
-            1f);
+        int nextIndex = 1;
+        while (nextIndex < HappyHalloween.Length - 1 &&
+               state.Elapsed >= HappyHalloween[nextIndex].Timestamp)
+        {
+            nextIndex++;
+        }
+
+        PhraseKeyframe from = HappyHalloween[nextIndex - 1];
+        PhraseKeyframe to = HappyHalloween[nextIndex];
+        float amount = Smooth((float)Math.Clamp(
+            (state.Elapsed - from.Timestamp) / Math.Max(0.001d, to.Timestamp - from.Timestamp),
+            0d,
+            1d));
+        MouthPose mouth = MouthPose.Lerp(PoseFor(from.Shape), PoseFor(to.Shape), amount);
         state.Frame = state.Frame with
         {
-            JawOpen = (0.08f + syllable * 0.48f) * FadeOut(remaining, 0.32f),
+            JawOpen = mouth.JawOpen,
+            SpeechActive = true,
+            MouthWidth = mouth.Width,
+            MouthRoundness = mouth.Roundness,
         };
     }
 
@@ -285,7 +333,13 @@ public sealed class ActionSceneController
         }
         if (_states.TryGetValue(SceneId.Talking, out SceneState? talking))
         {
-            composed = composed with { JawOpen = talking.Frame.JawOpen };
+            composed = composed with
+            {
+                JawOpen = talking.Frame.JawOpen,
+                SpeechActive = talking.Frame.SpeechActive,
+                MouthWidth = talking.Frame.MouthWidth,
+                MouthRoundness = talking.Frame.MouthRoundness,
+            };
         }
         if (_states.TryGetValue(SceneId.CandleSputter, out SceneState? candle))
         {
@@ -353,12 +407,40 @@ public sealed class ActionSceneController
     {
         SceneId.Looking => 12.0d,
         SceneId.Blinking => 10.0d,
-        SceneId.Talking => 9.0d,
+        SceneId.Talking => 4.07d,
         SceneId.CandleSputter => 7.0d,
         _ => throw new ArgumentOutOfRangeException(nameof(scene), scene, "Unknown action scene."),
     };
     private double Next(double minimum, double maximum) =>
         minimum + _random.NextDouble() * (maximum - minimum);
+
+    private static MouthPose PoseFor(Viseme viseme) => viseme switch
+    {
+        Viseme.Ah => new(0.68f, 0.78f, 0.24f),
+        Viseme.Eh => new(0.46f, 0.92f, 0.25f),
+        Viseme.Ih => new(0.29f, 0.96f, 0.23f),
+        Viseme.Oh => new(0.67f, 0.34f, 0.92f),
+        Viseme.Ooh => new(0.40f, 0.20f, 1.00f),
+        Viseme.Fv => new(0.12f, 0.72f, 0.23f),
+        Viseme.L => new(0.40f, 0.70f, 0.27f),
+        Viseme.Mbp => new(0.02f, 0.56f, 0.22f),
+        Viseme.Wq => new(0.32f, 0.22f, 0.98f),
+        Viseme.Th => new(0.20f, 0.64f, 0.25f),
+        Viseme.ChJSh => new(0.28f, 0.48f, 0.48f),
+        Viseme.DnSt => new(0.16f, 0.60f, 0.24f),
+        Viseme.Kg => new(0.30f, 0.70f, 0.25f),
+        _ => new(0.01f, 0.56f, 0.22f),
+    };
+
+    private readonly record struct PhraseKeyframe(double Timestamp, Viseme Shape);
+
+    private readonly record struct MouthPose(float JawOpen, float Width, float Roundness)
+    {
+        public static MouthPose Lerp(MouthPose from, MouthPose to, float amount) => new(
+            Mathf.Lerp(from.JawOpen, to.JawOpen, amount),
+            Mathf.Lerp(from.Width, to.Width, amount),
+            Mathf.Lerp(from.Roundness, to.Roundness, amount));
+    }
 
     private sealed class SceneState
     {

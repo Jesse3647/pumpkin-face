@@ -1,6 +1,6 @@
 # Pumpkin Face
 
-Pumpkin Face is a GPU-accelerated jack-o-lantern face for projection onto a physical pumpkin. A private operator window controls a separate, clean output window while both display the same rendered framebuffer. The three emotion endpoints use vector contours traced from the reference artwork and morph as deformable geometry rather than prerecorded video, leaving the mouth ready for future speech animation.
+Pumpkin Face is a GPU-accelerated jack-o-lantern face for projection onto a physical pumpkin. A private operator window controls a separate, clean output window while both display the same rendered framebuffer. The three emotion endpoints use vector contours traced from the reference artwork and morph as deformable geometry. The Talking scene performs a local, synchronized “Happy Halloween” voice line with distinct speech-mouth shapes.
 
 The traced carving is rendered on a lobed, hollow 3D pumpkin shell. Reference-matched eye sockets, pupils, catchlights, cut nose, and single-piece stepped mouth conform to the curved surface. Every opening has a soot-dark lip and visible shell thickness, revealing a candle-lit inner wall plus a modeled wax candle, wick, and animated flame. The flame, internal point light, rough-flesh bounce lighting, and soft opening halos share the same position and flicker. The exterior shell renders black but still writes depth: on a projector it contributes no synthetic pumpkin color, while pixel-accurate contour apertures reveal the interior and surrounding halos place a small amount of real light onto the physical pumpkin.
 
@@ -10,7 +10,7 @@ The face can switch between three clear emotions modeled after classic pumpkin-c
 - **Happy** opens into tall friendly eyes and a broad, toothy crescent smile.
 - **Sad** turns the eye peaks inward, lowers the gaze, and bends the mouth into a heavy frown.
 
-Emotions are selected independently and morph directly between traced expressions over 250 ms; there is no generated neutral face. The **Scenes** layer adds Looking, Blinking, Talking, and Candle Sputter without replacing the selected emotion. Scene controls are independent toggles, so any combination can loop together—for example, Talking + Looking + Blinking. Scene autoplay chooses short randomized combinations at randomized intervals without changing the face's emotion or intensity.
+Emotions are selected independently and morph directly between traced expressions over 250 ms; there is no generated neutral face. The **Scenes** layer adds Looking, Blinking, Talking, and Candle Sputter without replacing the selected emotion. Scene controls can be combined—for example, Talking + Looking + Blinking. Looking, Blinking, and Candle Sputter loop while selected; Talking says “Happy Halloween” once, moves through closed, wide, and rounded vowel shapes, and then deselects itself. Scene autoplay chooses short randomized combinations at randomized intervals without changing the face's emotion or intensity.
 
 ## Requirements
 
@@ -61,7 +61,7 @@ The operator window contains the exact projector preview, emotion controls, acti
 | `3` | Play Sad |
 | `L` | Toggle the Looking scene |
 | `B` | Toggle the Blinking scene |
-| `T` | Toggle the Talking scene |
+| `T` | Toggle the “Happy Halloween” Talking scene |
 | `C` | Toggle the Candle Sputter scene |
 | `A` | Toggle scene autoplay |
 | `F` | Toggle projector fullscreen |
@@ -160,6 +160,6 @@ Only the macOS export preset is currently supplied. The application architecture
 
 ## V1 boundaries
 
-V1 is silent and does not yet include speech playback, lip-sync inference, remote control, a local AI model, camera-based alignment, keystone/corner-pin correction, sound effects, Developer ID signing, or notarization. Projection calibration is an affine move/scale/rotate adjustment rather than surface mapping.
+V1 includes one fixed, locally generated “Happy Halloween” performance. It does not yet include arbitrary speech, automatic lip-sync inference, remote control, a local AI model, camera-based alignment, keystone/corner-pin correction, sound effects, Developer ID signing, or notarization. Projection calibration is an affine move/scale/rotate adjustment rather than surface mapping.
 
 The project is intentionally scaffolded for those additions. See [Architecture and extension guide](docs/ARCHITECTURE.md) for the component boundaries and concrete next steps.

@@ -35,7 +35,7 @@ public sealed class ActionSceneControllerTests
         bool looked = false;
         bool blinked = false;
         bool talked = false;
-        for (int step = 0; step < 120; step++)
+        for (int step = 0; step < 60; step++)
         {
             controller.Update(0.05);
             looked |= controller.Frame.Gaze.Length() > 0.10f;
@@ -85,6 +85,39 @@ public sealed class ActionSceneControllerTests
 
         Assert.True(talked);
         Assert.True(sputtered);
+    }
+
+    [Fact]
+    public void Talking_PerformsHappyHalloweenWithDistinctVisemeShapes()
+    {
+        ActionSceneController controller = new(seed: 12);
+        controller.SetSelected(SceneId.Talking, true);
+
+        bool sawClosedConsonant = false;
+        bool sawWideVowel = false;
+        bool sawRoundedO = false;
+        for (int step = 0; step < 81; step++)
+        {
+            controller.Update(0.05);
+            ActionSceneFrame frame = controller.Frame;
+            Assert.True(frame.SpeechActive);
+            sawClosedConsonant |= frame.JawOpen < 0.05f;
+            sawWideVowel |= frame.MouthWidth > 0.85f && frame.JawOpen > 0.25f;
+            sawRoundedO |= frame.MouthRoundness > 0.85f &&
+                           frame.MouthWidth < 0.45f &&
+                           frame.JawOpen > 0.30f;
+        }
+
+        Assert.True(sawClosedConsonant);
+        Assert.True(sawWideVowel);
+        Assert.True(sawRoundedO);
+        Assert.Contains(SceneId.Talking, controller.ActiveScenes);
+
+        controller.Update(0.05);
+
+        Assert.DoesNotContain(SceneId.Talking, controller.ActiveScenes);
+        Assert.False(controller.IsSelected(SceneId.Talking));
+        Assert.Equal(ActionSceneFrame.Rest, controller.Frame);
     }
 
     [Fact]

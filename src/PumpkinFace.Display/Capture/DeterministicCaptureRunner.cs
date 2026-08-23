@@ -33,7 +33,7 @@ public sealed partial class DeterministicCaptureRunner : Node
         new(EmotionId.Happy, 0.42, "scene-blinking.png", 1f,
             new ActionSceneFrame(Vector2.Zero, 0.08f, 0f, 1f)),
         new(EmotionId.Happy, 0.42, "scene-talking.png", 1f,
-            new ActionSceneFrame(Vector2.Zero, 1f, 0.48f, 1f)),
+            new ActionSceneFrame(Vector2.Zero, 1f, 0.67f, 1f, true, 0.34f, 0.92f)),
         new(EmotionId.Happy, 0.42, "scene-candle-sputter.png", 1f,
             new ActionSceneFrame(Vector2.Zero, 1f, 0f, 0.30f)),
         new(EmotionId.Happy, 0.42, "camera-orbit-left.png", 1f, null, new Vector2(35f, 0f)),
@@ -268,6 +268,8 @@ public sealed partial class DeterministicCaptureRunner : Node
             LeftEyelidOpen = action.EyelidOpen,
             RightEyelidOpen = action.EyelidOpen,
             JawOpen = action.JawOpen,
+            MouthWidth = action.SpeechActive ? action.MouthWidth : pose.MouthWidth,
+            MouthRoundness = action.SpeechActive ? action.MouthRoundness : pose.MouthRoundness,
             LightingIntensity = pose.LightingIntensity * action.LightingMultiplier,
         };
     }

@@ -432,13 +432,13 @@ public sealed partial class OperatorPanel : Control
         content.AddChild(_autoplayToggle);
         content.AddChild(new Label
         {
-            Text = "Select any combination. Actions loop over the current emotion.",
+            Text = "Select any combination. Happy Halloween plays once; other actions loop.",
             Modulate = new Color("8d8d98"),
         });
         GridContainer scenes = new() { Columns = 1 };
         AddActionSceneButton(scenes, "Looking  [L]", SceneId.Looking);
         AddActionSceneButton(scenes, "Blinking  [B]", SceneId.Blinking);
-        AddActionSceneButton(scenes, "Talking  [T]", SceneId.Talking);
+        AddActionSceneButton(scenes, "Talking — Happy Halloween  [T]", SceneId.Talking);
         AddActionSceneButton(scenes, "Candle sputter  [C]", SceneId.CandleSputter);
         content.AddChild(scenes);
         return WrapCard(content);

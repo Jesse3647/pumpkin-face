@@ -14,6 +14,7 @@ namespace PumpkinFace.Display.App;
 /// </summary>
 public sealed partial class AppRoot : Node
 {
+    private const string HappyHalloweenAudioPath = "res://Assets/happy_halloween.wav";
     private readonly BoundedAnimationCommandQueue _commands = new(64);
 
     private CalibrationProfileStore? _profiles;
@@ -23,6 +24,7 @@ public sealed partial class AppRoot : Node
     private FaceStage? _stage;
     private ProjectorHost? _projector;
     private OperatorPanel? _operator;
+    private AudioStreamPlayer? _speechPlayer;
     private double _fpsRefreshElapsed;
     private bool _shuttingDown;
     private string? _pendingPersistenceError;
@@ -50,10 +52,17 @@ public sealed partial class AppRoot : Node
         _actionScenes.SetAutoplay(load.State.AutoplayEnabled);
         _projector = new ProjectorHost { Name = "ProjectorHost" };
         _operator = new OperatorPanel { Name = "OperatorPanel" };
+        _speechPlayer = new AudioStreamPlayer
+        {
+            Name = "HappyHalloweenVoice",
+            Stream = GD.Load<AudioStream>(HappyHalloweenAudioPath),
+            VolumeDb = -1.5f,
+        };
         AddChild(_stage);
         AddChild(_animations);
         AddChild(_projector);
         AddChild(_operator);
+        AddChild(_speechPlayer);
 
         _director = new SceneDirector(
             seed: 0x504B4E,
@@ -121,8 +130,14 @@ public sealed partial class AppRoot : Node
         DrainCommands();
         _director.Update(TimeSpan.FromSeconds(Math.Max(0d, delta)));
         _animations.Synchronize(_director.Snapshot);
+        bool talkingWasSelected = _actionScenes!.IsSelected(SceneId.Talking);
         _actionScenes!.Update(delta);
+        if (talkingWasSelected && !_actionScenes.IsSelected(SceneId.Talking))
+        {
+            _operator.SetSelectedScenes(_actionScenes.SelectedScenes);
+        }
         ActionSceneFrame action = _actionScenes.Frame;
+        FacePose expressionPose = _animations.CurrentPose;
         FacePose displayedPose = _animations.CurrentPose with
         {
             LeftGazeX = action.Gaze.X,
@@ -132,9 +147,12 @@ public sealed partial class AppRoot : Node
             LeftEyelidOpen = action.EyelidOpen,
             RightEyelidOpen = action.EyelidOpen,
             JawOpen = action.JawOpen,
+            MouthWidth = action.SpeechActive ? action.MouthWidth : expressionPose.MouthWidth,
+            MouthRoundness = action.SpeechActive ? action.MouthRoundness : expressionPose.MouthRoundness,
             LightingIntensity = _animations.CurrentPose.LightingIntensity * action.LightingMultiplier,
         };
         _stage.SetPose(displayedPose);
+        UpdateSpeechAudio(_actionScenes.ActiveScenes.Contains(SceneId.Talking));
 
         string? persistenceError = Interlocked.Exchange(ref _pendingPersistenceError, null);
         if (persistenceError is not null)
@@ -357,6 +375,23 @@ public sealed partial class AppRoot : Node
     {
         bool enabled = !(_actionScenes?.IsSelected(scene) ?? false);
         Post(new SetSceneEnabledCommand(scene, enabled));
+    }
+
+    private void UpdateSpeechAudio(bool talkingActive)
+    {
+        if (_speechPlayer is null)
+        {
+            return;
+        }
+
+        if (talkingActive && !_speechPlayer.Playing)
+        {
+            _speechPlayer.Play();
+        }
+        else if (!talkingActive && _speechPlayer.Playing)
+        {
+            _speechPlayer.Stop();
+        }
     }
 
     private void SelectDisplay(int screen)
