@@ -10,7 +10,7 @@ The face can switch between three clear emotions modeled after classic pumpkin-c
 - **Happy** opens into tall friendly eyes and a broad, toothy crescent smile.
 - **Sad** turns the eye peaks inward, lowers the gaze, and bends the mouth into a heavy frown.
 
-Emotions are selected independently and morph directly between traced expressions over 250 ms; there is no generated neutral face. The **Scenes** layer adds Looking, Blinking, and Candle Sputter without replacing the selected emotion. Scene controls can be combined, and every selected scene loops until stopped. The custom phrase field can synthesize up to 240 characters locally, animate closed, wide, and rounded mouth shapes, then ease naturally back to the active expression. Speech can run while any scene combination remains selected. Its voice selector offers ten Kokoro neural voices plus installed macOS voices as fallbacks. Scene autoplay chooses short randomized combinations at randomized intervals without changing the face's emotion or intensity.
+Emotions are selected independently and morph directly between traced expressions over 250 ms; there is no generated neutral face. The **Scenes** layer adds Looking, Blinking, and Candle Sputter without replacing the selected emotion. Scene controls can be combined, and every selected scene loops until stopped. The custom phrase field can synthesize up to 240 characters locally, animate closed, wide, and rounded mouth shapes, then ease naturally back to the active expression. Speech can run while any scene combination remains selected. Its voice selector offers all 28 American and British English voices included with the Kokoro model. Scene autoplay chooses short randomized combinations at randomized intervals without changing the face's emotion or intensity.
 
 ## Requirements
 
@@ -160,6 +160,6 @@ Only the macOS export preset is currently supplied. The application architecture
 
 ## V1 boundaries
 
-V1 includes locally generated typed speech on macOS. Typed speech uses the local Kokoro neural model through sherpa-onnx, with macOS system voices retained as fallbacks. Deterministic text-to-viseme timing is stretched to the measured audio duration; it does not include acoustic phoneme inference. Remote control, a conversational local AI model, camera-based alignment, keystone/corner-pin correction, sound effects, Developer ID signing, and notarization are not included. Projection calibration is an affine move/scale/rotate adjustment rather than surface mapping.
+V1 includes locally generated typed speech on macOS. Typed speech uses the local Kokoro neural model through sherpa-onnx. Deterministic text-to-viseme timing is stretched to the measured audio duration; it does not include acoustic phoneme inference. Remote control, a conversational local AI model, camera-based alignment, keystone/corner-pin correction, sound effects, Developer ID signing, and notarization are not included. Projection calibration is an affine move/scale/rotate adjustment rather than surface mapping.
 
 The project is intentionally scaffolded for those additions. See [Architecture and extension guide](docs/ARCHITECTURE.md) for the component boundaries and concrete next steps.

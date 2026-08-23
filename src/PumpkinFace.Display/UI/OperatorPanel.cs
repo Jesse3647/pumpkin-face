@@ -512,7 +512,7 @@ public sealed partial class OperatorPanel : Control
         _speechPhrase = new LineEdit
         {
             PlaceholderText = "Type what the pumpkin should say",
-            MaxLength = MacSpeechSynthesizer.MaximumPhraseLength,
+            MaxLength = KokoroSpeechSynthesizer.MaximumPhraseLength,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
         };
         _speechPhrase.TextSubmitted += _ => RequestTypedSpeech();

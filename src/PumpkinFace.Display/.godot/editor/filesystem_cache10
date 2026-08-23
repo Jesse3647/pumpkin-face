@@ -1,15 +1,15 @@
 3e2cc9f74922c2592e3236b3f5b5179c
 ::res://::1787010205
 export_presets.cfg::TextFile::-1::1786762141::0::1::::<><><>0<>0<><>::
-::res://Animation/::1787450442
+::res://Animation/::1787451809
 ActionSceneController.cs::CSharpScript::7448517821651171508::1787450944::0::1::::<><><>0<>0<><>::
 FacePoseDriver.cs::CSharpScript::4553221001321204727::1786767772::0::1::::<>Node<><>0<>0<><>::
-KokoroSpeechSynthesizer.cs::CSharpScript::1601906275826342338::1787449986::0::1::::<><><>0<>0<><>::
-MacSpeechSynthesizer.cs::CSharpScript::330648103780718846::1787449451::0::1::::<><><>0<>0<><>::
+KokoroSpeechSynthesizer.cs::CSharpScript::1601906275826342338::1787451841::0::1::::<><><>0<>0<><>::
 SceneAnimationController.cs::CSharpScript::3890047340719763603::1787440237::0::1::::<>Node<><>0<>0<><>::
+SpeechSynthesisResult.cs::CSharpScript::177251908998287950::1787451809::0::1::::<><><>0<>0<><>::
 SpeechVoiceChoice.cs::CSharpScript::6653280664404679901::1787449451::0::1::::<><><>0<>0<><>::
 ::res://App/::1786760138
-AppRoot.cs::CSharpScript::5647533561876831347::1787450943::0::1::::<>Node<><>0<>0<><>::
+AppRoot.cs::CSharpScript::5647533561876831347::1787451809::0::1::::<>Node<><>0<>0<><>::
 ProjectorHost.cs::CSharpScript::8194779575298597905::1786759411::0::1::::<>Node<><>0<>0<><>::
 ::res://Assets/::1787451010
 pumpkin_face_icon.svg::CompressedTexture2D::6458253187817586516::1786761018::1786761151::1::::<><><>0<>0<>e6328503d10e9bc3abebcf802ee80b77<>res://.godot/imported/pumpkin_face_icon.svg-9703853154953602598dd442f345d454.ctex::
@@ -41,5 +41,5 @@ pumpkin_interior_3d.gdshader::Shader::5565806165610762236::1787444104::0::1::::<
 pumpkin_shell_3d.gdshader::Shader::3362949273388074617::1787444999::0::1::::<><><>0<>0<><>::
 ::res://text_editor_themes/::1786760137
 ::res://UI/::1786760138
-OperatorPanel.cs::CSharpScript::5153991855607742939::1787450943::0::1::::<>Control<><>0<>0<><>::
+OperatorPanel.cs::CSharpScript::5153991855607742939::1787451809::0::1::::<>Control<><>0<>0<><>::
 ProjectionPreview.cs::CSharpScript::1701392612885552756::1787440807::0::1::::<>Control<><>0<>0<><>::

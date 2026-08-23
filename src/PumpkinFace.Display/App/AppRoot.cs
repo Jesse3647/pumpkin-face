@@ -82,10 +82,7 @@ public sealed partial class AppRoot : Node
         _stage.ShowGuides = false;
         _operator.SetPreviewTexture(_stage.Texture);
         _operator.SetAutoplay(load.State.AutoplayEnabled);
-        List<SpeechVoiceChoice> speechVoices = [.. KokoroSpeechSynthesizer.Voices];
-        speechVoices.AddRange(MacSpeechSynthesizer.FindAvailableNaturalVoices()
-            .Select(voice => new SpeechVoiceChoice($"mac:{voice}", $"macOS fallback — {voice}")));
-        _operator.SetSpeechVoices(speechVoices, _speechVoice);
+        _operator.SetSpeechVoices(KokoroSpeechSynthesizer.Voices, _speechVoice);
         _operator.SetGuides(false);
         _projector.SetTexture(_stage.Texture);
         RefreshProfilesAndCalibration();
@@ -469,20 +466,9 @@ public sealed partial class AppRoot : Node
         _operator!.SetAutoplay(false);
         _operator.SetSelectedScenes(_actionScenes.SelectedScenes);
         _operator.SetSpeechBusy(true);
-        if (_speechVoice.StartsWith("kokoro:", StringComparison.Ordinal))
-        {
-            _operator.SetStatus(
-                "Preparing local neural speech… The first phrase downloads and loads the model.");
-            _speechSynthesisTask = _kokoroSpeech!.SynthesizeAsync(normalized, _speechVoice);
-        }
-        else
-        {
-            string macVoice = _speechVoice.StartsWith("mac:", StringComparison.Ordinal)
-                ? _speechVoice["mac:".Length..]
-                : MacSpeechSynthesizer.SystemDefaultVoice;
-            _operator.SetStatus("Preparing the macOS fallback voice…");
-            _speechSynthesisTask = MacSpeechSynthesizer.SynthesizeAsync(normalized, macVoice);
-        }
+        _operator.SetStatus(
+            "Preparing local neural speech… The first phrase downloads and loads the model.");
+        _speechSynthesisTask = _kokoroSpeech!.SynthesizeAsync(normalized, _speechVoice);
     }
 
     private void CompleteSpeechSynthesisIfReady()

@@ -6,12 +6,14 @@ namespace PumpkinFace.Display.Animation;
 /// <summary>Downloads and runs the Kokoro neural voice model entirely on this Mac.</summary>
 public sealed class KokoroSpeechSynthesizer : IDisposable
 {
+    public const int MaximumPhraseLength = 240;
     private const string ModelArchiveUrl =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2";
     private const string ModelDirectoryName = "kokoro-multi-lang-v1_0";
     private readonly string _modelsDirectory;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private OfflineTts? _synthesizer;
+    private bool? _usingBritishEnglish;
 
     private static readonly IReadOnlyDictionary<string, int> SpeakerIds =
         new Dictionary<string, int>(StringComparer.Ordinal)
@@ -35,16 +37,34 @@ public sealed class KokoroSpeechSynthesizer : IDisposable
 
     public static IReadOnlyList<SpeechVoiceChoice> Voices { get; } =
     [
-        new("kokoro:af_heart", "Neural — Heart (US female)"),
-        new("kokoro:af_bella", "Neural — Bella (US female)"),
-        new("kokoro:af_nicole", "Neural — Nicole (US female)"),
-        new("kokoro:af_sarah", "Neural — Sarah (US female)"),
-        new("kokoro:af_sky", "Neural — Sky (US female)"),
-        new("kokoro:am_adam", "Neural — Adam (US male)"),
-        new("kokoro:am_michael", "Neural — Michael (US male)"),
-        new("kokoro:am_puck", "Neural — Puck (US male)"),
-        new("kokoro:bf_emma", "Neural — Emma (UK female)"),
-        new("kokoro:bm_george", "Neural — George (UK male)"),
+        new("kokoro:af_alloy", "US female — Alloy"),
+        new("kokoro:af_aoede", "US female — Aoede"),
+        new("kokoro:af_bella", "US female — Bella"),
+        new("kokoro:af_heart", "US female — Heart"),
+        new("kokoro:af_jessica", "US female — Jessica"),
+        new("kokoro:af_kore", "US female — Kore"),
+        new("kokoro:af_nicole", "US female — Nicole"),
+        new("kokoro:af_nova", "US female — Nova"),
+        new("kokoro:af_river", "US female — River"),
+        new("kokoro:af_sarah", "US female — Sarah"),
+        new("kokoro:af_sky", "US female — Sky"),
+        new("kokoro:am_adam", "US male — Adam"),
+        new("kokoro:am_echo", "US male — Echo"),
+        new("kokoro:am_eric", "US male — Eric"),
+        new("kokoro:am_fenrir", "US male — Fenrir"),
+        new("kokoro:am_liam", "US male — Liam"),
+        new("kokoro:am_michael", "US male — Michael"),
+        new("kokoro:am_onyx", "US male — Onyx"),
+        new("kokoro:am_puck", "US male — Puck"),
+        new("kokoro:am_santa", "US male — Santa"),
+        new("kokoro:bf_alice", "UK female — Alice"),
+        new("kokoro:bf_emma", "UK female — Emma"),
+        new("kokoro:bf_isabella", "UK female — Isabella"),
+        new("kokoro:bf_lily", "UK female — Lily"),
+        new("kokoro:bm_daniel", "UK male — Daniel"),
+        new("kokoro:bm_fable", "UK male — Fable"),
+        new("kokoro:bm_george", "UK male — George"),
+        new("kokoro:bm_lewis", "UK male — Lewis"),
     ];
 
     public async Task<SpeechSynthesisResult> SynthesizeAsync(
@@ -54,21 +74,25 @@ public sealed class KokoroSpeechSynthesizer : IDisposable
     {
         string normalized = phrase.Trim();
         ArgumentException.ThrowIfNullOrWhiteSpace(normalized);
-        if (normalized.Length > MacSpeechSynthesizer.MaximumPhraseLength)
+        if (normalized.Length > MaximumPhraseLength)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(phrase),
-                $"Phrases are limited to {MacSpeechSynthesizer.MaximumPhraseLength} characters.");
+                $"Phrases are limited to {MaximumPhraseLength} characters.");
         }
 
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            await EnsureLoadedAsync(cancellationToken);
             string voiceName = voiceId.StartsWith("kokoro:", StringComparison.Ordinal)
                 ? voiceId["kokoro:".Length..]
                 : "af_heart";
-            int speakerId = SpeakerIds.GetValueOrDefault(voiceName, SpeakerIds["af_heart"]);
+            if (!SpeakerIds.TryGetValue(voiceName, out int speakerId))
+            {
+                voiceName = "af_heart";
+                speakerId = SpeakerIds[voiceName];
+            }
+            await EnsureLoadedAsync(voiceName, cancellationToken);
 
             string directory = Path.Combine(Path.GetTempPath(), "PumpkinFaceSpeech");
             Directory.CreateDirectory(directory);
@@ -107,24 +131,30 @@ public sealed class KokoroSpeechSynthesizer : IDisposable
         _gate.Dispose();
     }
 
-    private async Task EnsureLoadedAsync(CancellationToken cancellationToken)
+    private async Task EnsureLoadedAsync(string voiceName, CancellationToken cancellationToken)
     {
-        if (_synthesizer is not null)
+        bool useBritishEnglish = voiceName.StartsWith('b');
+        if (_synthesizer is not null && _usingBritishEnglish == useBritishEnglish)
         {
             return;
         }
 
+        _synthesizer?.Dispose();
+        _synthesizer = null;
         string modelDirectory = await EnsureModelInstalledAsync(cancellationToken);
         OfflineTtsConfig config = new();
         config.Model.Kokoro.Model = Path.Combine(modelDirectory, "model.onnx");
         config.Model.Kokoro.Voices = Path.Combine(modelDirectory, "voices.bin");
         config.Model.Kokoro.Tokens = Path.Combine(modelDirectory, "tokens.txt");
         config.Model.Kokoro.DataDir = Path.Combine(modelDirectory, "espeak-ng-data");
-        config.Model.Kokoro.Lexicon = Path.Combine(modelDirectory, "lexicon-us-en.txt");
+        config.Model.Kokoro.Lexicon = Path.Combine(
+            modelDirectory,
+            useBritishEnglish ? "lexicon-gb-en.txt" : "lexicon-us-en.txt");
         config.Model.NumThreads = Math.Clamp(Environment.ProcessorCount / 2, 2, 4);
         config.Model.Debug = 0;
         config.Model.Provider = "cpu";
         _synthesizer = await Task.Run(() => new OfflineTts(config), cancellationToken);
+        _usingBritishEnglish = useBritishEnglish;
     }
 
     private async Task<string> EnsureModelInstalledAsync(CancellationToken cancellationToken)
@@ -203,5 +233,6 @@ public sealed class KokoroSpeechSynthesizer : IDisposable
         File.Exists(Path.Combine(modelDirectory, "voices.bin")) &&
         File.Exists(Path.Combine(modelDirectory, "tokens.txt")) &&
         File.Exists(Path.Combine(modelDirectory, "lexicon-us-en.txt")) &&
+        File.Exists(Path.Combine(modelDirectory, "lexicon-gb-en.txt")) &&
         Directory.Exists(Path.Combine(modelDirectory, "espeak-ng-data"));
 }
