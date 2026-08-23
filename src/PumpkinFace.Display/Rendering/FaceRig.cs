@@ -14,6 +14,7 @@ public sealed partial class FaceRig : Node2D
 
     private const string ShellShaderPath = "res://Shaders/pumpkin_shell_3d.gdshader";
     private const string InteriorShaderPath = "res://Shaders/pumpkin_interior_3d.gdshader";
+    private const string CutWallShaderPath = "res://Shaders/cut_wall_3d.gdshader";
     private const string FlameShaderPath = "res://Shaders/candle_flame_3d.gdshader";
     private const string HaloShaderPath = "res://Shaders/carved_halo_3d.gdshader";
     private const float DesignToWorldScale = 150f;
@@ -22,6 +23,7 @@ public sealed partial class FaceRig : Node2D
     private const float PumpkinRadiusZ = 3.38f;
 
     private readonly List<ShaderMaterial> _animatedMaterials = [];
+    private readonly List<ShaderMaterial> _candleAwareMaterials = [];
     private SubViewport? _modelViewport;
     private Node3D? _modelRoot;
     private Camera3D? _camera;
@@ -33,7 +35,7 @@ public sealed partial class FaceRig : Node2D
     private ShaderMaterial? _shellMaterial;
     private ShaderMaterial? _interiorMaterial;
     private StandardMaterial3D? _charMaterial;
-    private StandardMaterial3D? _wallMaterial;
+    private ShaderMaterial? _wallMaterial;
     private StandardMaterial3D? _pupilMaterial;
     private StandardMaterial3D? _catchlightMaterial;
     private CarvedFeature3D? _leftEye;
@@ -238,17 +240,21 @@ public sealed partial class FaceRig : Node2D
     {
         Shader? shellShader = GD.Load<Shader>(ShellShaderPath);
         Shader? interiorShader = GD.Load<Shader>(InteriorShaderPath);
+        Shader? cutWallShader = GD.Load<Shader>(CutWallShaderPath);
         Shader? flameShader = GD.Load<Shader>(FlameShaderPath);
         Shader? haloShader = GD.Load<Shader>(HaloShaderPath);
-        if (shellShader is null || interiorShader is null || flameShader is null || haloShader is null)
+        if (shellShader is null || interiorShader is null || cutWallShader is null ||
+            flameShader is null || haloShader is null)
         {
             GD.PushError("The 3D pumpkin shaders could not be loaded.");
         }
 
         _shellMaterial = new ShaderMaterial { Shader = shellShader };
         _animatedMaterials.Add(_shellMaterial);
+        _candleAwareMaterials.Add(_shellMaterial);
         _interiorMaterial = new ShaderMaterial { Shader = interiorShader };
         _animatedMaterials.Add(_interiorMaterial);
+        _candleAwareMaterials.Add(_interiorMaterial);
 
         _charMaterial = new StandardMaterial3D
         {
@@ -256,12 +262,9 @@ public sealed partial class FaceRig : Node2D
             Roughness = 0.97f,
             Metallic = 0f,
         };
-        _wallMaterial = new StandardMaterial3D
-        {
-            AlbedoColor = new Color(0.27f, 0.052f, 0.004f),
-            Roughness = 0.92f,
-            Metallic = 0f,
-        };
+        _wallMaterial = new ShaderMaterial { Shader = cutWallShader };
+        _animatedMaterials.Add(_wallMaterial);
+        _candleAwareMaterials.Add(_wallMaterial);
         _pupilMaterial = new StandardMaterial3D
         {
             AlbedoColor = new Color(0.002f, 0.001f, 0.0004f),
@@ -276,11 +279,13 @@ public sealed partial class FaceRig : Node2D
             EmissionEnergyMultiplier = 2.4f,
         };
 
-        ShaderMaterial NewHalo(float strength)
+        ShaderMaterial NewHalo(float strength, float outwardStrength = 1f)
         {
             ShaderMaterial material = new() { Shader = haloShader };
             material.SetShaderParameter("halo_strength", strength);
+            material.SetShaderParameter("outward_strength", outwardStrength);
             _animatedMaterials.Add(material);
+            _candleAwareMaterials.Add(material);
             return material;
         }
 
@@ -302,10 +307,10 @@ public sealed partial class FaceRig : Node2D
             haloScale: 1.18f);
         _mouth = NewCarvedFeature(
             "Mouth",
-            NewHalo(0.14f),
+            NewHalo(0.085f, 0.75f),
             innerScale: 0.970f,
             charScale: 1.016f,
-            haloScale: 1.10f);
+            haloScale: 1.09f);
     }
 
     private void ApplyCameraOrbit()
@@ -1008,8 +1013,10 @@ public sealed partial class FaceRig : Node2D
             _candleLight.LightEnergy = 34f * emotionalLight * _calibration.Brightness *
                 _calibration.CandleBrightness * flutter;
             _candleLight.Position = flamePosition + new Vector3(0f, 0.08f, 0f);
-            _interiorMaterial?.SetShaderParameter("candle_position", _candleLight.Position);
-            _shellMaterial?.SetShaderParameter("candle_position", _candleLight.Position);
+            foreach (ShaderMaterial material in _candleAwareMaterials)
+            {
+                material.SetShaderParameter("candle_position", _candleLight.Position);
+            }
         }
     }
 
@@ -1272,6 +1279,7 @@ public sealed partial class FaceRig : Node2D
     private sealed class CarvedFeature3D
     {
         private readonly MeshInstance3D _halo;
+        private readonly ShaderMaterial _haloMaterial;
         private readonly MeshInstance3D _charredRim;
         private readonly MeshInstance3D _cutWall;
         private readonly float _innerScale;
@@ -1283,7 +1291,7 @@ public sealed partial class FaceRig : Node2D
             Node3D parent,
             Material charMaterial,
             Material wallMaterial,
-            Material haloMaterial,
+            ShaderMaterial haloMaterial,
             float innerScale,
             float charScale,
             float haloScale)
@@ -1291,6 +1299,7 @@ public sealed partial class FaceRig : Node2D
             _innerScale = innerScale;
             _charScale = charScale;
             _haloScale = haloScale;
+            _haloMaterial = haloMaterial;
             _halo = NewMesh($"{name}Halo", haloMaterial, parent);
             _charredRim = NewMesh($"{name}CharredRim", charMaterial, parent);
             _cutWall = NewMesh($"{name}CutWall", wallMaterial, parent);
@@ -1307,6 +1316,13 @@ public sealed partial class FaceRig : Node2D
             float baseInset = 1f - _innerScale;
             float visibleInnerScale = Mathf.Clamp(1f - baseInset * thickness, 0.68f, 0.995f);
             Vector2[] inner = ScaleContour(points, visibleInnerScale);
+            Vector2 center = CenterOf(points);
+            float minimumY = points.Min(point => point.Y);
+            float maximumY = points.Max(point => point.Y);
+            _haloMaterial.SetShaderParameter("feature_center_y", -center.Y / DesignToWorldScale);
+            _haloMaterial.SetShaderParameter(
+                "feature_half_height",
+                Mathf.Max(0.05f, (maximumY - minimumY) * 0.5f / DesignToWorldScale));
             _halo.Mesh = BuildRingMesh(
                 ScaleContour(points, _haloScale),
                 points,
