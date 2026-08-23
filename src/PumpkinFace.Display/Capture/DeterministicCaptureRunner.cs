@@ -14,19 +14,30 @@ public sealed partial class DeterministicCaptureRunner : Node
 {
     private static readonly CaptureFrame[] Frames =
     [
-        new(null, 0.50, "neutral-050.png"),
-        new(SceneId.Watchful, 0.16, "watchful-016.png"),
-        new(SceneId.Watchful, 0.52, "watchful-052.png"),
-        new(SceneId.Watchful, 0.80, "watchful-080.png"),
-        new(SceneId.Frightened, 0.16, "frightened-016.png"),
-        new(SceneId.Frightened, 0.42, "frightened-042.png"),
-        new(SceneId.Frightened, 0.82, "frightened-082.png"),
-        new(SceneId.Drowsy, 0.32, "drowsy-032.png"),
-        new(SceneId.Drowsy, 0.62, "drowsy-062.png"),
-        new(SceneId.Drowsy, 0.91, "drowsy-091.png"),
-        new(SceneId.Mischievous, 0.28, "mischievous-028.png"),
-        new(SceneId.Mischievous, 0.58, "mischievous-058.png"),
-        new(SceneId.Mischievous, 0.82, "mischievous-082.png"),
+        new(EmotionId.Frightened, 0.16, "frightened-016.png"),
+        new(EmotionId.Frightened, 0.42, "frightened-042.png"),
+        new(EmotionId.Frightened, 0.82, "frightened-082.png"),
+        new(EmotionId.Happy, 0.16, "happy-016.png"),
+        new(EmotionId.Happy, 0.42, "happy-042.png"),
+        new(EmotionId.Happy, 0.82, "happy-082.png"),
+        new(EmotionId.Happy, 0.42, "happy-amount-025.png", 0.25f),
+        new(EmotionId.Happy, 0.42, "shell-thickness-min.png",
+            ShellThickness: ProjectionCalibration.MinimumShellThickness),
+        new(EmotionId.Happy, 0.42, "shell-thickness-max.png",
+            ShellThickness: ProjectionCalibration.MaximumShellThickness),
+        new(EmotionId.Sad, 0.16, "sad-016.png"),
+        new(EmotionId.Sad, 0.42, "sad-042.png"),
+        new(EmotionId.Sad, 0.82, "sad-082.png"),
+        new(EmotionId.Happy, 0.42, "scene-looking.png", 1f,
+            new ActionSceneFrame(new Vector2(0.75f, -0.35f), 1f, 0f, 1f)),
+        new(EmotionId.Happy, 0.42, "scene-blinking.png", 1f,
+            new ActionSceneFrame(Vector2.Zero, 0.08f, 0f, 1f)),
+        new(EmotionId.Happy, 0.42, "scene-talking.png", 1f,
+            new ActionSceneFrame(Vector2.Zero, 1f, 0.48f, 1f)),
+        new(EmotionId.Happy, 0.42, "scene-candle-sputter.png", 1f,
+            new ActionSceneFrame(Vector2.Zero, 1f, 0f, 0.30f)),
+        new(EmotionId.Happy, 0.42, "camera-orbit-left.png", 1f, null, new Vector2(35f, 0f)),
+        new(EmotionId.Happy, 0.42, "camera-orbit-upper-right.png", 1f, null, new Vector2(-28f, 20f)),
     ];
 
     private const int FramesToSettle = 3;
@@ -91,7 +102,7 @@ public sealed partial class DeterministicCaptureRunner : Node
             return;
         }
 
-        _stage.SetPose(_animations.CurrentPose);
+        _stage.SetPose(BuildCapturePose(Frames[_frameIndex]));
         if (_capturePending)
         {
             if (++_postDrawWaitFrames > MaximumPostDrawWaitFrames)
@@ -164,8 +175,14 @@ public sealed partial class DeterministicCaptureRunner : Node
     {
         CaptureFrame frame = Frames[_frameIndex];
         _animations!.SetCaptureFrame(frame.Scene, frame.Progress);
+        _stage!.SetCalibration(ProjectionCalibration.Default with
+        {
+            ShellThickness = frame.ShellThickness,
+        });
+        _stage!.EmotionAmount = frame.EmotionAmount;
+        _stage.SetCameraOrbit(frame.CameraOrbitDegrees ?? Vector2.Zero);
         _stage!.AnimationTime = _frameIndex * 0.731 + frame.Progress * 4.0;
-        _stage.SetPose(_animations.CurrentPose);
+        _stage.SetPose(BuildCapturePose(frame));
         _settleFrames = 0;
         _capturePending = false;
         _postDrawWaitFrames = 0;
@@ -236,6 +253,23 @@ public sealed partial class DeterministicCaptureRunner : Node
         }
 
         return CaptureAttempt.Captured;
+    }
+
+    private FacePose BuildCapturePose(CaptureFrame frame)
+    {
+        FacePose pose = _animations!.CurrentPose;
+        ActionSceneFrame action = frame.Action ?? ActionSceneFrame.Rest;
+        return pose with
+        {
+            LeftGazeX = action.Gaze.X,
+            LeftGazeY = action.Gaze.Y,
+            RightGazeX = action.Gaze.X,
+            RightGazeY = action.Gaze.Y,
+            LeftEyelidOpen = action.EyelidOpen,
+            RightEyelidOpen = action.EyelidOpen,
+            JawOpen = action.JawOpen,
+            LightingIntensity = pose.LightingIntensity * action.LightingMultiplier,
+        };
     }
 
     private void Finish()
@@ -313,7 +347,14 @@ public sealed partial class DeterministicCaptureRunner : Node
         return Path.GetFullPath(path, ProjectSettings.GlobalizePath("res://"));
     }
 
-    private readonly record struct CaptureFrame(SceneId? Scene, double Progress, string FileName);
+    private readonly record struct CaptureFrame(
+        EmotionId? Scene,
+        double Progress,
+        string FileName,
+        float EmotionAmount = 1f,
+        ActionSceneFrame? Action = null,
+        Vector2? CameraOrbitDegrees = null,
+        float ShellThickness = 1f);
 
     private enum CaptureAttempt
     {

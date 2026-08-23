@@ -1,17 +1,16 @@
 # Pumpkin Face
 
-Pumpkin Face is a GPU-accelerated jack-o-lantern face for projection onto a physical pumpkin. A private operator window controls a separate, clean output window while both display the same rendered framebuffer. The face is built from deformable geometry rather than prerecorded video, leaving the mouth ready for future speech animation.
+Pumpkin Face is a GPU-accelerated jack-o-lantern face for projection onto a physical pumpkin. A private operator window controls a separate, clean output window while both display the same rendered framebuffer. The three emotion endpoints use vector contours traced from the reference artwork and morph as deformable geometry rather than prerecorded video, leaving the mouth ready for future speech animation.
 
-The procedural carving uses independently authored eye sockets, ember-rimmed shadow pupils, an irregular cut nose, and a broad stepped three-tooth grin. Each opening is layered as restrained spill light, a soot-dark lip, uneven directional pumpkin flesh, a recessed cavity, and a shared low candle plane with cream-hot cores and amber falloff. The background stays completely black so the physical pumpkin remains the visible surface around the projected cuts.
+The traced carving is rendered on a lobed, hollow 3D pumpkin shell. Reference-matched eye sockets, pupils, catchlights, cut nose, and single-piece stepped mouth conform to the curved surface. Every opening has a soot-dark lip and visible shell thickness, revealing a candle-lit inner wall plus a modeled wax candle, wick, and animated flame. The flame, internal point light, rough-flesh bounce lighting, and soft opening halos share the same position and flicker. The exterior shell renders black but still writes depth: on a projector it contributes no synthetic pumpkin color, while pixel-accurate contour apertures reveal the interior and surrounding halos place a small amount of real light onto the physical pumpkin.
 
-Version 1 includes four silent scenes:
+The face can switch between three clear emotions modeled after classic pumpkin-cutout expressions:
 
-- **Watchful** anticipates, lets each pupil investigate independently, double-blinks, and gives a curious little reaction.
-- **Frightened** performs a compact cartoon startle, two diminishing shivers, and an embarrassed smile recovery.
-- **Drowsy** loses the fight one eye at a time, yawns, pops awake, and settles sheepishly.
-- **Mischievous** peeks and winks before locking forward and revealing a crooked, glowing grin.
+- **Frightened** uses outward-peaked eyes, smaller pupils, a deep frown, and a restrained tremble.
+- **Happy** opens into tall friendly eyes and a broad, toothy crescent smile.
+- **Sad** turns the eye peaks inward, lowers the gaze, and bends the mouth into a heavy frown.
 
-Autoplay inserts randomized 3–8 second neutral pauses, shuffles the scenes without immediate repeats, keeps each performance inside a tight tempo window, and blends between expressions over 250 ms. Gaze, lid, and shake tracks use crisp linear timing for readable darts and blinks; mouth, brow, pupil, and candle tracks retain smoother curves.
+Emotions are selected independently and morph directly between traced expressions over 250 ms; there is no generated neutral face. The **Scenes** layer adds Looking, Blinking, Talking, and Candle Sputter without replacing the selected emotion. Scene controls are independent toggles, so any combination can loop together—for example, Talking + Looking + Blinking. Scene autoplay chooses short randomized combinations at randomized intervals without changing the face's emotion or intensity.
 
 ## Requirements
 
@@ -52,20 +51,25 @@ For a real projection, configure the projector as an **extended display**, not a
 
 ## Operator controls
 
-The operator window contains the exact projector preview, output controls, scene triggers, named calibration profiles, and fine adjustment controls. The projector window contains only the face on black.
+The operator window contains the exact projector preview, emotion controls, action scenes, pumpkin-lighting controls, named calibration profiles, and fine adjustment controls. The **Emotion amount** slider softens or strengthens the selected expression while preserving its traced identity. **Candle brightness** scales the flame, internal light, reflected cavity light, and shell transmission together. **Shell thickness** changes the recessed inner wall, carving depth, and visible width of the cut-flesh ring, so its effect remains apparent in the straight-on orthographic preview. Both values are stored in calibration profiles. The projector window contains only the face on black.
 
 | Control | Action |
 | --- | --- |
-| `Space` | Play the next shuffled scene now |
-| `1` | Play Watchful |
-| `2` | Play Frightened |
-| `3` | Play Drowsy |
-| `4` | Play Mischievous |
-| `A` | Toggle autoplay |
+| `Space` | Play the next shuffled emotion now |
+| `1` | Play Frightened |
+| `2` | Play Happy |
+| `3` | Play Sad |
+| `L` | Toggle the Looking scene |
+| `B` | Toggle the Blinking scene |
+| `T` | Toggle the Talking scene |
+| `C` | Toggle the Candle Sputter scene |
+| `A` | Toggle scene autoplay |
 | `F` | Toggle projector fullscreen |
 | `Esc` | Leave projector fullscreen without quitting |
 
-The keyboard shortcuts apply while the operator application has keyboard focus. The same scene, autoplay, output, and fullscreen actions are available as buttons.
+The keyboard shortcuts apply while the operator application has keyboard focus. The same emotion, scene, autoplay, output, and fullscreen actions are available as buttons.
+
+Drag normally inside the operator preview to orbit the 3D camera around the pumpkin. When alignment guides are visible, right-drag performs the orbit so left-drag can continue moving and resizing the calibrated projection. Five seconds after the last orbit input, the camera quickly returns to its default front view.
 
 ### Safe output behavior
 
@@ -119,7 +123,7 @@ This smoke check does not validate native multi-display behavior or captured pix
 
 ## Deterministic visual captures
 
-Capture mode renders 13 fixed neutral and scene poses at 1280×720, fixes the procedural candle clock, disables alignment guides, and exits automatically.
+Capture mode renders nine fixed expression poses, one reduced-intensity pose, minimum/maximum shell-thickness checks, four action-scene frames, and two camera-orbit views at 1280×720. It fixes the procedural candle clock, disables alignment guides, and exits automatically.
 
 Image capture requires a real GPU-backed, windowed Godot session. **Do not add `--headless` or use a dummy display driver**: a headless smoke check can load resources, but it cannot reliably read back the application's GPU viewport.
 

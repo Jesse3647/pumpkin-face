@@ -19,6 +19,7 @@ public sealed partial class AppRoot : Node
     private CalibrationProfileStore? _profiles;
     private SceneDirector? _director;
     private SceneAnimationController? _animations;
+    private ActionSceneController? _actionScenes;
     private FaceStage? _stage;
     private ProjectorHost? _projector;
     private OperatorPanel? _operator;
@@ -45,6 +46,8 @@ public sealed partial class AppRoot : Node
 
         _stage = new FaceStage { Name = "FaceStage" };
         _animations = new SceneAnimationController { Name = "SceneAnimations" };
+        _actionScenes = new ActionSceneController();
+        _actionScenes.SetAutoplay(load.State.AutoplayEnabled);
         _projector = new ProjectorHost { Name = "ProjectorHost" };
         _operator = new OperatorPanel { Name = "OperatorPanel" };
         AddChild(_stage);
@@ -54,7 +57,7 @@ public sealed partial class AppRoot : Node
 
         _director = new SceneDirector(
             seed: 0x504B4E,
-            autoplayEnabled: load.State.AutoplayEnabled);
+            autoplayEnabled: false);
         _director.Transitioned += transition => _animations.ApplyTransition(transition);
 
         WireOperatorEvents();
@@ -118,7 +121,20 @@ public sealed partial class AppRoot : Node
         DrainCommands();
         _director.Update(TimeSpan.FromSeconds(Math.Max(0d, delta)));
         _animations.Synchronize(_director.Snapshot);
-        _stage.SetPose(_animations.CurrentPose);
+        _actionScenes!.Update(delta);
+        ActionSceneFrame action = _actionScenes.Frame;
+        FacePose displayedPose = _animations.CurrentPose with
+        {
+            LeftGazeX = action.Gaze.X,
+            LeftGazeY = action.Gaze.Y,
+            RightGazeX = action.Gaze.X,
+            RightGazeY = action.Gaze.Y,
+            LeftEyelidOpen = action.EyelidOpen,
+            RightEyelidOpen = action.EyelidOpen,
+            JawOpen = action.JawOpen,
+            LightingIntensity = _animations.CurrentPose.LightingIntensity * action.LightingMultiplier,
+        };
+        _stage.SetPose(displayedPose);
 
         string? persistenceError = Interlocked.Exchange(ref _pendingPersistenceError, null);
         if (persistenceError is not null)
@@ -130,9 +146,14 @@ public sealed partial class AppRoot : Node
         if (_fpsRefreshElapsed >= 0.25)
         {
             _fpsRefreshElapsed = 0;
-            _operator.SetFps(
-                Engine.GetFramesPerSecond(),
-                _director.Snapshot.CurrentScene?.ToString());
+            string activity = _animations.CurrentEmotion.ToString();
+            SceneId[] activeScenes = [.. _actionScenes.ActiveScenes.OrderBy(scene => scene)];
+            if (activeScenes.Length > 0)
+            {
+                activity += $"  •  {string.Join(" + ", activeScenes)}";
+            }
+
+            _operator.SetFps(Engine.GetFramesPerSecond(), activity);
         }
     }
 
@@ -147,22 +168,31 @@ public sealed partial class AppRoot : Node
         switch (key.Keycode)
         {
             case Key.Space:
-                Post(new NextSceneCommand());
+                Post(new NextEmotionCommand());
                 break;
             case Key.Key1:
-                Post(new PlaySceneCommand(SceneId.Watchful));
+                Post(new PlayEmotionCommand(EmotionId.Frightened));
                 break;
             case Key.Key2:
-                Post(new PlaySceneCommand(SceneId.Frightened));
+                Post(new PlayEmotionCommand(EmotionId.Happy));
                 break;
             case Key.Key3:
-                Post(new PlaySceneCommand(SceneId.Drowsy));
+                Post(new PlayEmotionCommand(EmotionId.Sad));
                 break;
-            case Key.Key4:
-                Post(new PlaySceneCommand(SceneId.Mischievous));
+            case Key.L:
+                ToggleScene(SceneId.Looking);
+                break;
+            case Key.B:
+                ToggleScene(SceneId.Blinking);
+                break;
+            case Key.T:
+                ToggleScene(SceneId.Talking);
+                break;
+            case Key.C:
+                ToggleScene(SceneId.CandleSputter);
                 break;
             case Key.A:
-                bool autoplay = !(_director?.Snapshot.AutoplayEnabled ?? true);
+                bool autoplay = !(_actionScenes?.AutoplayEnabled ?? true);
                 Post(new SetAutoplayCommand(autoplay));
                 break;
             case Key.F:
@@ -209,8 +239,11 @@ public sealed partial class AppRoot : Node
             return;
         }
 
-        _operator.SceneRequested += scene => Post(new PlaySceneCommand(scene));
-        _operator.NextSceneRequested += () => Post(new NextSceneCommand());
+        _operator.EmotionRequested += emotion => Post(new PlayEmotionCommand(emotion));
+        _operator.NextEmotionRequested += () => Post(new NextEmotionCommand());
+        _operator.EmotionAmountChanged += amount => Post(new SetEmotionAmountCommand((float)amount));
+        _operator.SceneSelectionChanged += (scene, enabled) =>
+            Post(new SetSceneEnabledCommand(scene, enabled));
         _operator.AutoplayChanged += enabled => Post(new SetAutoplayCommand(enabled));
         _operator.DisplaySelected += SelectDisplay;
         _operator.OutputToggleRequested += ToggleOutput;
@@ -239,6 +272,7 @@ public sealed partial class AppRoot : Node
             _profiles!.ResetProfile(id));
         _operator.CalibrationChanged += ApplyCalibrationField;
         _operator.Preview.TransformEdited += ApplyPreviewEdit;
+        _operator.Preview.OrbitDragged += delta => _stage?.AdjustCameraOrbit(delta);
     }
 
     private void WireProjectorEvents()
@@ -269,18 +303,44 @@ public sealed partial class AppRoot : Node
                 continue;
             }
 
-            if (_director!.Handle(command))
+            if (command is SetEmotionAmountCommand emotionAmount)
             {
-                if (command is SetAutoplayCommand autoplay)
-                {
-                    _profiles!.SetAutoplayEnabled(autoplay.Enabled);
-                    _operator!.SetAutoplay(autoplay.Enabled);
-                }
-                else if (command is StopCommand)
+                _stage!.EmotionAmount = emotionAmount.Amount;
+                continue;
+            }
+
+            if (command is SetSceneEnabledCommand scene)
+            {
+                _actionScenes!.SetSelected(scene.Scene, scene.Enabled);
+                if (scene.Enabled)
                 {
                     _profiles!.SetAutoplayEnabled(false);
                     _operator!.SetAutoplay(false);
                 }
+                _operator!.SetSelectedScenes(_actionScenes.SelectedScenes);
+                continue;
+            }
+
+            if (command is SetAutoplayCommand autoplay)
+            {
+                _actionScenes!.SetAutoplay(autoplay.Enabled);
+                _profiles!.SetAutoplayEnabled(autoplay.Enabled);
+                _operator!.SetAutoplay(autoplay.Enabled);
+                _operator.SetSelectedScenes(_actionScenes.SelectedScenes);
+                continue;
+            }
+
+            if (command is StopCommand)
+            {
+                _actionScenes!.Stop();
+                _profiles!.SetAutoplayEnabled(false);
+                _operator!.SetAutoplay(false);
+                _operator.SetSelectedScenes([]);
+            }
+
+            if (_director!.Handle(command))
+            {
+                continue;
             }
         }
     }
@@ -291,6 +351,12 @@ public sealed partial class AppRoot : Node
         {
             _operator?.SetStatus("The control queue is busy; try that action again", warning: true);
         }
+    }
+
+    private void ToggleScene(SceneId scene)
+    {
+        bool enabled = !(_actionScenes?.IsSelected(scene) ?? false);
+        Post(new SetSceneEnabledCommand(scene, enabled));
     }
 
     private void SelectDisplay(int screen)
@@ -380,6 +446,8 @@ public sealed partial class AppRoot : Node
             CalibrationField.MouthScale => current with { MouthScaleX = value, MouthScaleY = value },
             CalibrationField.Brightness => current with { Brightness = value },
             CalibrationField.Gamma => current with { Gamma = value },
+            CalibrationField.CandleBrightness => current with { CandleBrightness = value },
+            CalibrationField.ShellThickness => current with { ShellThickness = value },
             _ => current,
         };
         Post(new ApplyCalibrationCommand(updated));
@@ -451,7 +519,9 @@ public sealed partial class AppRoot : Node
             calibration.MouthOffsetY,
             (calibration.MouthScaleX + calibration.MouthScaleY) * 0.5,
             calibration.Brightness,
-            calibration.Gamma));
+            calibration.Gamma,
+            calibration.CandleBrightness,
+            calibration.ShellThickness));
         _operator.Preview.SetTransformState(new PreviewTransformState(
             new Vector2(calibration.OffsetX, calibration.OffsetY),
             new Vector2(calibration.ScaleX, calibration.ScaleY),

@@ -26,23 +26,18 @@ public static class SceneTimings
         TimeSpan.FromSeconds(3),
         TimeSpan.FromSeconds(8));
 
-    public static SceneDurationRange For(SceneId scene) => scene switch
+    public static SceneDurationRange For(EmotionId emotion) => emotion switch
     {
-        // Keep a little deterministic timing variation so autoplay does not feel
-        // mechanical, but hold each authored performance close to its intended
-        // tempo. Broadly stretching a clip makes eye darts and blinks read as
-        // different acting choices from one play to the next.
-        SceneId.Watchful => new SceneDurationRange(TimeSpan.FromSeconds(9.5), TimeSpan.FromSeconds(10.5)),
-        SceneId.Frightened => new SceneDurationRange(TimeSpan.FromSeconds(4.75), TimeSpan.FromSeconds(5.25)),
-        SceneId.Drowsy => new SceneDurationRange(TimeSpan.FromSeconds(12), TimeSpan.FromSeconds(13)),
-        SceneId.Mischievous => new SceneDurationRange(TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(9)),
-        _ => throw new ArgumentOutOfRangeException(nameof(scene), scene, "Unknown scene."),
+        EmotionId.Frightened => new SceneDurationRange(TimeSpan.FromSeconds(4.75), TimeSpan.FromSeconds(5.25)),
+        EmotionId.Happy => new SceneDurationRange(TimeSpan.FromSeconds(5.75), TimeSpan.FromSeconds(6.25)),
+        EmotionId.Sad => new SceneDurationRange(TimeSpan.FromSeconds(5.75), TimeSpan.FromSeconds(6.25)),
+        _ => throw new ArgumentOutOfRangeException(nameof(emotion), emotion, "Unknown emotion."),
     };
 }
 
 public readonly record struct SceneDirectorSnapshot(
     SceneDirectorState State,
-    SceneId? CurrentScene,
+    EmotionId? CurrentScene,
     bool AutoplayEnabled,
     bool IsManuallyTriggered,
     TimeSpan PhaseElapsed,
@@ -64,8 +59,8 @@ public readonly record struct SceneDirectorSnapshot(
 
 public readonly record struct SceneDirectorTransition(
     SceneTransitionKind Kind,
-    SceneId? PreviousScene,
-    SceneId? Scene,
+    EmotionId? PreviousScene,
+    EmotionId? Scene,
     bool IsManuallyTriggered,
     TimeSpan CrossfadeDuration,
     SceneDirectorSnapshot Snapshot);
@@ -98,11 +93,11 @@ public sealed class SceneDirector : ISceneDirector
 
     private const int DefaultSeed = 0x504B4E;
     private readonly DeterministicRandom _random;
-    private readonly SceneId[] _shuffleBag = Enum.GetValues<SceneId>();
+    private readonly EmotionId[] _shuffleBag = Enum.GetValues<EmotionId>();
     private int _shuffleIndex;
     private SceneDirectorState _state;
-    private SceneId? _currentScene;
-    private SceneId? _lastScene;
+    private EmotionId? _currentScene;
+    private EmotionId? _lastScene;
     private bool _autoplayEnabled;
     private bool _isManuallyTriggered;
     private TimeSpan _phaseElapsed;
@@ -150,11 +145,11 @@ public sealed class SceneDirector : ISceneDirector
 
         switch (command)
         {
-            case PlaySceneCommand play:
-                StartScene(play.Scene, manuallyTriggered: true);
+            case PlayEmotionCommand play:
+                StartScene(play.Emotion, manuallyTriggered: true);
                 return true;
 
-            case NextSceneCommand:
+            case NextEmotionCommand:
                 StartScene(TakeNextScene(), manuallyTriggered: true);
                 return true;
 
@@ -275,7 +270,7 @@ public sealed class SceneDirector : ISceneDirector
             isManuallyTriggered: wasManuallyTriggered);
     }
 
-    private void StartScene(SceneId scene, bool manuallyTriggered)
+    private void StartScene(EmotionId scene, bool manuallyTriggered)
     {
         // Validates enum values supplied by untrusted remote controllers.
         var timing = SceneTimings.For(scene);
@@ -312,7 +307,7 @@ public sealed class SceneDirector : ISceneDirector
         ? TimeSpan.Zero
         : _phaseDuration - _phaseElapsed;
 
-    private SceneId TakeNextScene()
+    private EmotionId TakeNextScene()
     {
         if (_shuffleIndex >= _shuffleBag.Length)
         {
@@ -365,8 +360,8 @@ public sealed class SceneDirector : ISceneDirector
 
     private void RaiseTransition(
         SceneTransitionKind kind,
-        SceneId? previousScene,
-        SceneId? scene,
+        EmotionId? previousScene,
+        EmotionId? scene,
         bool? isManuallyTriggered = null)
     {
         Transitioned?.Invoke(new SceneDirectorTransition(

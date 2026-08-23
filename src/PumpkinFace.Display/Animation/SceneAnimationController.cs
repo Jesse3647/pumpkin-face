@@ -23,7 +23,7 @@ public sealed partial class SceneAnimationController : Node
     private const string SpeechMixNode = "SpeechMouthLayer";
     private const string RetriggerStateSuffix = "Retrigger";
 
-    private static readonly SceneId[] Scenes = Enum.GetValues<SceneId>();
+    private static readonly EmotionId[] Scenes = Enum.GetValues<EmotionId>();
     private static readonly string[] PoseProperties =
     [
         nameof(FacePoseDriver.LeftGazeX),
@@ -61,14 +61,16 @@ public sealed partial class SceneAnimationController : Node
     private AnimationPlayer? _player;
     private AnimationTree? _tree;
     private AnimationNodeStateMachinePlayback? _playback;
-    private string _currentState = NeutralAnimation;
-    private SceneId? _currentScene;
+    private string _currentState = EmotionId.Happy.ToString();
+    private EmotionId? _currentScene;
     private PendingSceneRequest? _pendingScene;
-    private SceneId? _lastSnapshotScene;
+    private EmotionId? _lastSnapshotScene;
     private TimeSpan _lastSnapshotPhaseElapsed;
     private long _lastHandledSceneStartRevision = -1;
 
     public FacePose CurrentPose => _driver?.ToPose() ?? FacePose.Neutral;
+
+    public EmotionId CurrentEmotion => _currentScene ?? EmotionId.Happy;
 
     public override void _Ready()
     {
@@ -81,7 +83,7 @@ public sealed partial class SceneAnimationController : Node
 
         BuildAnimationLibrary();
         BuildAnimationTree();
-        StartNeutral(immediate: true);
+        StartInitialExpression();
     }
 
     public void ApplyTransition(SceneDirectorTransition transition)
@@ -98,7 +100,6 @@ public sealed partial class SceneAnimationController : Node
             case SceneTransitionKind.SceneCompleted:
             case SceneTransitionKind.Stopped:
                 _pendingScene = null;
-                StartNeutral(immediate: false);
                 break;
         }
     }
@@ -110,17 +111,13 @@ public sealed partial class SceneAnimationController : Node
             return;
         }
 
-        SceneId? expectedScene = snapshot.State == SceneDirectorState.Playing
+        EmotionId? expectedScene = snapshot.State == SceneDirectorState.Playing
             ? snapshot.CurrentScene
             : null;
 
         if (expectedScene is null)
         {
             _pendingScene = null;
-            if (_currentScene is not null)
-            {
-                StartNeutral(immediate: false);
-            }
         }
         else
         {
@@ -147,7 +144,7 @@ public sealed partial class SceneAnimationController : Node
     /// Selects an exact normalized point in a scene without advancing the engine
     /// clock. Used by the deterministic visual-capture harness.
     /// </summary>
-    public void SetCaptureFrame(SceneId? scene, double normalizedProgress)
+    public void SetCaptureFrame(EmotionId? scene, double normalizedProgress)
     {
         if (_tree is null || _driver is null)
         {
@@ -155,11 +152,9 @@ public sealed partial class SceneAnimationController : Node
         }
 
         _tree.Active = false;
-        string animationName = scene?.ToString() ?? NeutralAnimation;
+        string animationName = (scene ?? EmotionId.Happy).ToString();
         double progress = Math.Clamp(normalizedProgress, 0d, 1d);
-        GodotAnimation expression = scene is { }
-            ? _animations[animationName]
-            : _animations[NeutralReferenceAnimation];
+        GodotAnimation expression = _animations[animationName];
         FacePose composed = ComposeCapturePose(
             _animations[NeutralAnimation],
             expression,
@@ -195,7 +190,7 @@ public sealed partial class SceneAnimationController : Node
         StartSceneNow(pending.Scene, snapshot.PhaseRemaining);
     }
 
-    private void StartSceneNow(SceneId scene, TimeSpan remainingDuration)
+    private void StartSceneNow(EmotionId scene, TimeSpan remainingDuration)
     {
         if (_tree is null || _playback is null)
         {
@@ -214,33 +209,26 @@ public sealed partial class SceneAnimationController : Node
         _playback.Travel(_currentState);
     }
 
-    private void StartNeutral(bool immediate)
+    private void StartInitialExpression()
     {
         if (_tree is null || _playback is null)
         {
             return;
         }
 
-        _currentState = NeutralAnimation;
-        _currentScene = null;
-        if (immediate)
-        {
-            _playback.Start(ExpressionRestState, true);
-        }
-        else
-        {
-            _playback.Travel(ExpressionRestState);
-        }
+        _currentState = EmotionId.Happy.ToString();
+        _currentScene = EmotionId.Happy;
+        _expressionClips[_currentState].TimelineLength = 1.0;
+        _playback.Start(_currentState, true);
     }
 
     private void BuildAnimationLibrary()
     {
         _animations[NeutralAnimation] = BuildNeutral();
         _animations[NeutralReferenceAnimation] = BuildNeutralReference();
-        _animations[SceneId.Watchful.ToString()] = BuildWatchful();
-        _animations[SceneId.Frightened.ToString()] = BuildFrightened();
-        _animations[SceneId.Drowsy.ToString()] = BuildDrowsy();
-        _animations[SceneId.Mischievous.ToString()] = BuildMischievous();
+        _animations[EmotionId.Frightened.ToString()] = BuildFrightenedEmotion();
+        _animations[EmotionId.Happy.ToString()] = BuildHappyEmotion();
+        _animations[EmotionId.Sad.ToString()] = BuildSadEmotion();
         _animations["SpeechRest"] = BuildSpeechRest();
 
         AnimationLibrary library = new();
@@ -262,7 +250,7 @@ public sealed partial class SceneAnimationController : Node
         List<string> expressionStates = [ExpressionRestState];
         for (int index = 0; index < Scenes.Length; index++)
         {
-            SceneId scene = Scenes[index];
+            EmotionId scene = Scenes[index];
             for (int variant = 0; variant < 2; variant++)
             {
                 string stateName = SceneStateName(scene, variant == 1);
@@ -348,10 +336,10 @@ public sealed partial class SceneAnimationController : Node
         Animation = animationName,
     };
 
-    private static string SceneStateName(SceneId scene, bool retrigger) =>
+    private static string SceneStateName(EmotionId scene, bool retrigger) =>
         retrigger ? $"{scene}{RetriggerStateSuffix}" : scene.ToString();
 
-    private readonly record struct PendingSceneRequest(SceneId Scene, long Revision);
+    private readonly record struct PendingSceneRequest(EmotionId Scene, long Revision);
 
     private static GodotAnimation BuildNeutral()
     {
@@ -377,6 +365,113 @@ public sealed partial class SceneAnimationController : Node
 
         return animation;
     }
+
+    private static GodotAnimation BuildFrightenedEmotion() => BuildHeldEmotion(
+        new FacePose
+        {
+            PupilSize = 0.43f,
+            LeftEyelidOpen = 1f,
+            RightEyelidOpen = 1f,
+            LeftBrowTension = -0.88f,
+            RightBrowTension = -0.88f,
+            JawOpen = 0f,
+            MouthWidth = 0.76f,
+            MouthRoundness = 0.05f,
+            LeftMouthCorner = -0.82f,
+            RightMouthCorner = -0.82f,
+            Tremble = 0.34f,
+            LightingIntensity = 1.12f,
+        });
+
+    private static GodotAnimation BuildHappyEmotion() => BuildHeldEmotion(
+        new FacePose
+        {
+            PupilSize = 0.56f,
+            LeftEyelidOpen = 1f,
+            RightEyelidOpen = 1f,
+            LeftBrowTension = 0.04f,
+            RightBrowTension = 0.04f,
+            JawOpen = 0f,
+            MouthWidth = 0.88f,
+            MouthRoundness = 0.04f,
+            LeftMouthCorner = 0.94f,
+            RightMouthCorner = 0.94f,
+            LightingIntensity = 1.16f,
+        });
+
+    private static GodotAnimation BuildSadEmotion() => BuildHeldEmotion(
+        new FacePose
+        {
+            PupilSize = 0.58f,
+            LeftEyelidOpen = 1f,
+            RightEyelidOpen = 1f,
+            LeftBrowTension = 0.88f,
+            RightBrowTension = 0.88f,
+            JawOpen = 0f,
+            MouthWidth = 0.78f,
+            MouthRoundness = 0.04f,
+            LeftMouthCorner = -0.92f,
+            RightMouthCorner = -0.92f,
+            LightingIntensity = 0.86f,
+        });
+
+    /// <summary>
+    /// Expression clips remain on their traced endpoint for their full duration.
+    /// The state-machine crossfade therefore morphs directly between emotions
+    /// and the last expression remains visible during autoplay pauses.
+    /// </summary>
+    private static GodotAnimation BuildHeldEmotion(FacePose expression)
+    {
+        GodotAnimation animation = NewOneShotAnimation();
+        FacePose target = expression.Clamp();
+        foreach (string property in PoseProperties)
+        {
+            float held = GetPoseValue(target, property);
+            if (property == nameof(FacePoseDriver.Tremble) && held > 0f)
+            {
+                AddTrack(
+                    animation,
+                    property,
+                    (0, held),
+                    (0.34, held * 0.72f),
+                    (0.58, held),
+                    (0.86, held * 0.58f),
+                    (1, held));
+            }
+            else
+            {
+                AddTrack(
+                    animation,
+                    property,
+                    (0, held),
+                    (0.86, held),
+                    (1, held));
+            }
+        }
+
+        return animation;
+    }
+
+    private static float GetPoseValue(FacePose pose, string property) => property switch
+    {
+        nameof(FacePoseDriver.LeftGazeX) => pose.LeftGazeX,
+        nameof(FacePoseDriver.LeftGazeY) => pose.LeftGazeY,
+        nameof(FacePoseDriver.RightGazeX) => pose.RightGazeX,
+        nameof(FacePoseDriver.RightGazeY) => pose.RightGazeY,
+        nameof(FacePoseDriver.PupilSize) => pose.PupilSize,
+        nameof(FacePoseDriver.LeftEyelidOpen) => pose.LeftEyelidOpen,
+        nameof(FacePoseDriver.RightEyelidOpen) => pose.RightEyelidOpen,
+        nameof(FacePoseDriver.LeftBrowTension) => pose.LeftBrowTension,
+        nameof(FacePoseDriver.RightBrowTension) => pose.RightBrowTension,
+        nameof(FacePoseDriver.JawOpen) => pose.JawOpen,
+        nameof(FacePoseDriver.MouthWidth) => pose.MouthWidth,
+        nameof(FacePoseDriver.MouthRoundness) => pose.MouthRoundness,
+        nameof(FacePoseDriver.LeftMouthCorner) => pose.LeftMouthCorner,
+        nameof(FacePoseDriver.RightMouthCorner) => pose.RightMouthCorner,
+        nameof(FacePoseDriver.Tremble) => pose.Tremble,
+        nameof(FacePoseDriver.LightingIntensity) => pose.LightingIntensity,
+        _ => throw new ArgumentOutOfRangeException(nameof(property), property, "Unknown face pose property."),
+    };
 
     private static GodotAnimation BuildWatchful()
     {

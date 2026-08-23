@@ -11,6 +11,8 @@ public sealed partial class FaceStage : Node
 {
     public static readonly Vector2I DefaultOutputSize = new(1920, 1080);
 
+    private readonly CameraOrbitController _cameraOrbit = new();
+
     private SubViewport? _viewport;
     private ColorRect? _background;
     private Node2D? _projectionRoot;
@@ -20,6 +22,7 @@ public sealed partial class FaceStage : Node
     private FaceDesignGuides? _faceGuides;
     private FacePose _pose = FacePose.Neutral;
     private ProjectionCalibration _calibration = ProjectionCalibration.Default;
+    private float _emotionAmount = 1f;
     private Vector2I _outputSize = DefaultOutputSize;
     private double _animationTime;
     private bool _showGuides;
@@ -76,6 +79,21 @@ public sealed partial class FaceStage : Node
 
     public Vector2I OutputSize => _outputSize;
 
+    public Vector2 CameraOrbitDegrees => _cameraOrbit.Degrees;
+
+    public float EmotionAmount
+    {
+        get => _emotionAmount;
+        set
+        {
+            _emotionAmount = float.IsFinite(value) ? Mathf.Clamp(value, 0f, 1f) : 1f;
+            if (_rig is not null)
+            {
+                _rig.EmotionAmount = _emotionAmount;
+            }
+        }
+    }
+
     /// <summary>
     /// Controls the deterministic candle shader clock. Capture tooling can turn
     /// AutoAdvanceAnimationTime off and set exact timestamps here.
@@ -118,6 +136,25 @@ public sealed partial class FaceStage : Node
         {
             ApplyTremble();
         }
+
+        if (_cameraOrbit.Update(delta) && _rig is not null)
+        {
+            _rig.CameraOrbitDegrees = _cameraOrbit.Degrees;
+        }
+    }
+
+    public void AdjustCameraOrbit(Vector2 previewPixelDelta)
+    {
+        _cameraOrbit.Drag(previewPixelDelta);
+        EnsureInitialized();
+        _rig!.CameraOrbitDegrees = _cameraOrbit.Degrees;
+    }
+
+    public void SetCameraOrbit(Vector2 degrees)
+    {
+        _cameraOrbit.SetDegrees(degrees);
+        EnsureInitialized();
+        _rig!.CameraOrbitDegrees = _cameraOrbit.Degrees;
     }
 
     public void SetPose(FacePose pose)
@@ -241,6 +278,8 @@ public sealed partial class FaceStage : Node
 
         _rig.SetPose(_pose);
         _rig.SetCalibration(_calibration);
+        _rig.EmotionAmount = _emotionAmount;
+        _rig.CameraOrbitDegrees = _cameraOrbit.Degrees;
         _rig.AnimationTime = _animationTime;
         ApplyProjectionTransform();
         ApplyGuideVisibility();

@@ -17,6 +17,8 @@ public enum CalibrationField
     MouthScale,
     Brightness,
     Gamma,
+    CandleBrightness,
+    ShellThickness,
 }
 
 public readonly record struct CalibrationUiValues(
@@ -30,7 +32,9 @@ public readonly record struct CalibrationUiValues(
     double MouthOffsetY,
     double MouthScale,
     double Brightness,
-    double Gamma);
+    double Gamma,
+    double CandleBrightness,
+    double ShellThickness);
 
 public readonly record struct ProfileChoice(Guid Id, string Name);
 
@@ -43,6 +47,7 @@ public sealed partial class OperatorPanel : Control
     private readonly Dictionary<CalibrationField, (HSlider Slider, SpinBox Spin)> _calibrationControls = [];
     private readonly List<ProfileChoice> _profiles = [];
     private readonly List<DisplayChoice> _displays = [];
+    private readonly Dictionary<SceneId, CheckButton> _sceneToggles = [];
 
     private OptionButton? _profilePicker;
     private OptionButton? _displayPicker;
@@ -51,6 +56,8 @@ public sealed partial class OperatorPanel : Control
     private Button? _outputButton;
     private Button? _fullscreenButton;
     private CheckButton? _autoplayToggle;
+    private HSlider? _emotionAmountSlider;
+    private Label? _emotionAmountValue;
     private CheckButton? _guidesToggle;
     private Label? _statusLabel;
     private Label? _fpsLabel;
@@ -58,8 +65,10 @@ public sealed partial class OperatorPanel : Control
     private Guid _selectedProfileId;
     private bool _updating;
 
-    public event Action<SceneId>? SceneRequested;
-    public event Action? NextSceneRequested;
+    public event Action<EmotionId>? EmotionRequested;
+    public event Action? NextEmotionRequested;
+    public event Action<double>? EmotionAmountChanged;
+    public event Action<SceneId, bool>? SceneSelectionChanged;
     public event Action<bool>? AutoplayChanged;
     public event Action<int>? DisplaySelected;
     public event Action? OutputToggleRequested;
@@ -158,12 +167,23 @@ public sealed partial class OperatorPanel : Control
         SetField(CalibrationField.MouthScale, values.MouthScale);
         SetField(CalibrationField.Brightness, values.Brightness);
         SetField(CalibrationField.Gamma, values.Gamma);
+        SetField(CalibrationField.CandleBrightness, values.CandleBrightness);
+        SetField(CalibrationField.ShellThickness, values.ShellThickness);
         _updating = false;
     }
 
     public void SetAutoplay(bool enabled)
     {
         _autoplayToggle?.SetPressedNoSignal(enabled);
+    }
+
+    public void SetSelectedScenes(IEnumerable<SceneId> scenes)
+    {
+        HashSet<SceneId> selected = [.. scenes];
+        foreach ((SceneId scene, CheckButton toggle) in _sceneToggles)
+        {
+            toggle.SetPressedNoSignal(selected.Contains(scene));
+        }
     }
 
     public void SetGuides(bool enabled)
@@ -202,7 +222,7 @@ public sealed partial class OperatorPanel : Control
     {
         if (_fpsLabel is not null)
         {
-            _fpsLabel.Text = $"{fps:0} FPS  •  {sceneName ?? "Neutral"}";
+            _fpsLabel.Text = $"{fps:0} FPS  •  {sceneName ?? "Holding expression"}";
         }
     }
 
@@ -253,7 +273,7 @@ public sealed partial class OperatorPanel : Control
 
         Label previewHint = new()
         {
-            Text = "Drag the face to move • corner handles resize • top handle rotates",
+            Text = "Drag to orbit the 3D pumpkin • right-drag or hide guides while calibrating",
             Modulate = new Color("8d8d98"),
             HorizontalAlignment = HorizontalAlignment.Center,
         };
@@ -274,7 +294,9 @@ public sealed partial class OperatorPanel : Control
         inspector.AddThemeConstantOverride("separation", 12);
         inspectorScroll.AddChild(inspector);
         inspector.AddChild(BuildOutputCard());
-        inspector.AddChild(BuildScenesCard());
+        inspector.AddChild(BuildEmotionsCard());
+        inspector.AddChild(BuildActionScenesCard());
+        inspector.AddChild(BuildPumpkinLightingCard());
         inspector.AddChild(BuildProfilesCard());
         inspector.AddChild(BuildCalibrationCard());
 
@@ -351,10 +373,55 @@ public sealed partial class OperatorPanel : Control
         return WrapCard(content);
     }
 
-    private Control BuildScenesCard()
+    private Control BuildEmotionsCard()
     {
-        VBoxContainer content = CreateCardContent("Idle scenes");
-        _autoplayToggle = new CheckButton { Text = "Autoplay", ButtonPressed = true };
+        VBoxContainer content = CreateCardContent("Emotions");
+        GridContainer grid = new() { Columns = 1 };
+        AddEmotionButton(grid, "1  Frightened", EmotionId.Frightened);
+        AddEmotionButton(grid, "2  Happy", EmotionId.Happy);
+        AddEmotionButton(grid, "3  Sad", EmotionId.Sad);
+        content.AddChild(grid);
+
+        VBoxContainer amountRow = new();
+        amountRow.AddThemeConstantOverride("separation", 2);
+        HBoxContainer amountHeader = new();
+        amountHeader.AddChild(new Label
+        {
+            Text = "Emotion amount",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            Modulate = new Color("c8c8cf"),
+        });
+        _emotionAmountValue = new Label { Text = "100%", Modulate = new Color("a8c7b3") };
+        amountHeader.AddChild(_emotionAmountValue);
+        amountRow.AddChild(amountHeader);
+        _emotionAmountSlider = new HSlider
+        {
+            MinValue = 0,
+            MaxValue = 1,
+            Step = 0.01,
+            Value = 1,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+        };
+        _emotionAmountSlider.ValueChanged += value =>
+        {
+            _emotionAmountValue.Text = $"{Math.Round(value * 100):0}%";
+            if (!_updating)
+            {
+                EmotionAmountChanged?.Invoke(value);
+            }
+        };
+        amountRow.AddChild(_emotionAmountSlider);
+        content.AddChild(amountRow);
+
+        Button next = CreateButton("Next emotion  [Space]", () => NextEmotionRequested?.Invoke());
+        content.AddChild(next);
+        return WrapCard(content);
+    }
+
+    private Control BuildActionScenesCard()
+    {
+        VBoxContainer content = CreateCardContent("Scenes");
+        _autoplayToggle = new CheckButton { Text = "Autoplay scenes", ButtonPressed = true };
         _autoplayToggle.Toggled += enabled =>
         {
             if (!_updating)
@@ -363,17 +430,56 @@ public sealed partial class OperatorPanel : Control
             }
         };
         content.AddChild(_autoplayToggle);
-
-        GridContainer grid = new() { Columns = 2 };
-        AddSceneButton(grid, "1  Watchful", SceneId.Watchful);
-        AddSceneButton(grid, "2  Frightened", SceneId.Frightened);
-        AddSceneButton(grid, "3  Drowsy", SceneId.Drowsy);
-        AddSceneButton(grid, "4  Mischievous", SceneId.Mischievous);
-        content.AddChild(grid);
-
-        Button next = CreateButton("Next scene  [Space]", () => NextSceneRequested?.Invoke());
-        content.AddChild(next);
+        content.AddChild(new Label
+        {
+            Text = "Select any combination. Actions loop over the current emotion.",
+            Modulate = new Color("8d8d98"),
+        });
+        GridContainer scenes = new() { Columns = 1 };
+        AddActionSceneButton(scenes, "Looking  [L]", SceneId.Looking);
+        AddActionSceneButton(scenes, "Blinking  [B]", SceneId.Blinking);
+        AddActionSceneButton(scenes, "Talking  [T]", SceneId.Talking);
+        AddActionSceneButton(scenes, "Candle sputter  [C]", SceneId.CandleSputter);
+        content.AddChild(scenes);
         return WrapCard(content);
+    }
+
+    private Control BuildPumpkinLightingCard()
+    {
+        VBoxContainer content = CreateCardContent("Pumpkin lighting");
+        AddCalibrationField(
+            content,
+            CalibrationField.CandleBrightness,
+            "Candle brightness",
+            ProjectionCalibration.MinimumCandleBrightness,
+            ProjectionCalibration.MaximumCandleBrightness,
+            0.05);
+        AddCalibrationField(
+            content,
+            CalibrationField.ShellThickness,
+            "Shell thickness",
+            ProjectionCalibration.MinimumShellThickness,
+            ProjectionCalibration.MaximumShellThickness,
+            0.05);
+        return WrapCard(content);
+    }
+
+    private void AddActionSceneButton(Container parent, string text, SceneId scene)
+    {
+        CheckButton toggle = new()
+        {
+            Text = text,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+        };
+        toggle.Toggled += enabled =>
+        {
+            if (!_updating)
+            {
+                SceneSelectionChanged?.Invoke(scene, enabled);
+            }
+        };
+        _sceneToggles[scene] = toggle;
+        parent.AddChild(toggle);
     }
 
     private Control BuildProfilesCard()
@@ -429,9 +535,9 @@ public sealed partial class OperatorPanel : Control
         return WrapCard(content);
     }
 
-    private void AddSceneButton(Container parent, string text, SceneId scene)
+    private void AddEmotionButton(Container parent, string text, EmotionId emotion)
     {
-        Button button = CreateButton(text, () => SceneRequested?.Invoke(scene));
+        Button button = CreateButton(text, () => EmotionRequested?.Invoke(emotion));
         button.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         parent.AddChild(button);
     }

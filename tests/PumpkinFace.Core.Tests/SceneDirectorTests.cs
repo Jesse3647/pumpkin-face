@@ -37,12 +37,12 @@ public sealed class SceneDirectorTests
     public void Autoplay_UsesDurationRangesAndNeverImmediatelyRepeats()
     {
         var director = new SceneDirector(seed: 42);
-        var scenes = new List<SceneId>();
+        var scenes = new List<EmotionId>();
         director.Transitioned += transition =>
         {
             if (transition.Kind == SceneTransitionKind.SceneStarted)
             {
-                scenes.Add(Assert.IsType<SceneId>(transition.Scene));
+                scenes.Add(Assert.IsType<EmotionId>(transition.Scene));
                 Assert.False(transition.IsManuallyTriggered);
                 Assert.True(SceneTimings.For(transition.Scene.Value).Contains(transition.Snapshot.PhaseDuration));
             }
@@ -62,16 +62,16 @@ public sealed class SceneDirectorTests
             scenes.Zip(scenes.Skip(1)),
             pair => Assert.NotEqual(pair.First, pair.Second));
 
-        foreach (var bag in scenes.Chunk(4))
+        foreach (var bag in scenes.Chunk(3))
         {
-            Assert.Equal(4, bag.Distinct().Count());
+            Assert.Equal(3, bag.Distinct().Count());
         }
     }
 
     [Fact]
     public void SceneTimings_KeepRandomizedStretchCloseToTheAuthoredTempo()
     {
-        foreach (var scene in Enum.GetValues<SceneId>())
+        foreach (var scene in Enum.GetValues<EmotionId>())
         {
             var timing = SceneTimings.For(scene);
             var spread = timing.Maximum - timing.Minimum;
@@ -90,16 +90,16 @@ public sealed class SceneDirectorTests
         var transitions = new List<SceneDirectorTransition>();
         director.Transitioned += transitions.Add;
 
-        Assert.True(director.Handle(new PlaySceneCommand(SceneId.Watchful)));
+        Assert.True(director.Handle(new PlayEmotionCommand(EmotionId.Happy)));
         director.Update(TimeSpan.FromSeconds(1));
-        Assert.True(director.Handle(new PlaySceneCommand(SceneId.Frightened)));
+        Assert.True(director.Handle(new PlayEmotionCommand(EmotionId.Frightened)));
 
         var interrupted = director.Snapshot;
         Assert.Equal(SceneDirectorState.Playing, interrupted.State);
-        Assert.Equal(SceneId.Frightened, interrupted.CurrentScene);
+        Assert.Equal(EmotionId.Frightened, interrupted.CurrentScene);
         Assert.True(interrupted.IsManuallyTriggered);
         Assert.Equal(TimeSpan.Zero, interrupted.PhaseElapsed);
-        Assert.Equal(SceneId.Watchful, transitions[^1].PreviousScene);
+        Assert.Equal(EmotionId.Happy, transitions[^1].PreviousScene);
         Assert.Equal(TimeSpan.FromMilliseconds(250), transitions[^1].CrossfadeDuration);
 
         director.Update(interrupted.PhaseDuration);
@@ -123,18 +123,18 @@ public sealed class SceneDirectorTests
         var transitions = new List<SceneDirectorTransition>();
         director.Transitioned += transitions.Add;
 
-        director.Handle(new PlaySceneCommand(SceneId.Watchful));
+        director.Handle(new PlayEmotionCommand(EmotionId.Happy));
         director.Update(TimeSpan.FromSeconds(1));
         long revisionBeforeRetrigger = director.Snapshot.Revision;
 
-        director.Handle(new PlaySceneCommand(SceneId.Watchful));
+        director.Handle(new PlayEmotionCommand(EmotionId.Happy));
 
         SceneDirectorTransition retrigger = transitions[^1];
         Assert.Equal(SceneTransitionKind.SceneStarted, retrigger.Kind);
-        Assert.Equal(SceneId.Watchful, retrigger.PreviousScene);
-        Assert.Equal(SceneId.Watchful, retrigger.Scene);
+        Assert.Equal(EmotionId.Happy, retrigger.PreviousScene);
+        Assert.Equal(EmotionId.Happy, retrigger.Scene);
         Assert.Equal(TimeSpan.Zero, retrigger.Snapshot.PhaseElapsed);
-        Assert.True(SceneTimings.For(SceneId.Watchful).Contains(retrigger.Snapshot.PhaseDuration));
+        Assert.True(SceneTimings.For(EmotionId.Happy).Contains(retrigger.Snapshot.PhaseDuration));
         Assert.True(retrigger.Snapshot.Revision > revisionBeforeRetrigger);
         Assert.Equal(TimeSpan.FromMilliseconds(250), retrigger.CrossfadeDuration);
     }
@@ -143,7 +143,7 @@ public sealed class SceneDirectorTests
     public void DisablingAutoplay_LetsCurrentSceneFinishThenHoldsNeutral()
     {
         var director = new SceneDirector(seed: 12);
-        director.Handle(new PlaySceneCommand(SceneId.Drowsy));
+        director.Handle(new PlayEmotionCommand(EmotionId.Sad));
 
         director.Handle(new SetAutoplayCommand(false));
         Assert.False(director.Snapshot.AutoplayEnabled);
@@ -162,7 +162,7 @@ public sealed class SceneDirectorTests
     public void Stop_CancelsImmediatelyAndEnableAutoplayStartsFreshDelay()
     {
         var director = new SceneDirector(seed: 99);
-        director.Handle(new PlaySceneCommand(SceneId.Mischievous));
+        director.Handle(new PlayEmotionCommand(EmotionId.Frightened));
         director.Update(TimeSpan.FromSeconds(1));
 
         director.Handle(new StopCommand());
@@ -183,12 +183,12 @@ public sealed class SceneDirectorTests
     public void NextScene_NeverSelectsTheCurrentlyPlayingScene()
     {
         var director = new SceneDirector(seed: 321);
-        director.Handle(new PlaySceneCommand(SceneId.Watchful));
+        director.Handle(new PlayEmotionCommand(EmotionId.Happy));
 
-        director.Handle(new NextSceneCommand());
+        director.Handle(new NextEmotionCommand());
 
         Assert.Equal(SceneDirectorState.Playing, director.Snapshot.State);
-        Assert.NotEqual(SceneId.Watchful, director.Snapshot.CurrentScene);
+        Assert.NotEqual(EmotionId.Happy, director.Snapshot.CurrentScene);
         Assert.True(director.Snapshot.IsManuallyTriggered);
     }
 
@@ -217,7 +217,7 @@ public sealed class SceneDirectorTests
         Assert.False(director.Handle(new ApplyCalibrationCommand(ProjectionCalibration.Default)));
         Assert.Equal(before, director.Snapshot);
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => director.Handle(new PlaySceneCommand((SceneId)999)));
+            () => director.Handle(new PlayEmotionCommand((EmotionId)999)));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new SceneDirector(crossfadeDuration: TimeSpan.FromTicks(-1)));
     }

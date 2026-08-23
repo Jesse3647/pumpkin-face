@@ -7,9 +7,13 @@ public sealed class AnimationCommandQueueTests
     [Fact]
     public void Commands_AreValueObjects()
     {
-        Assert.Equal(new PlaySceneCommand(SceneId.Watchful), new PlaySceneCommand(SceneId.Watchful));
-        Assert.NotEqual(new PlaySceneCommand(SceneId.Watchful), new PlaySceneCommand(SceneId.Drowsy));
-        Assert.Equal(new NextSceneCommand(), new NextSceneCommand());
+        Assert.Equal(new PlayEmotionCommand(EmotionId.Happy), new PlayEmotionCommand(EmotionId.Happy));
+        Assert.NotEqual(new PlayEmotionCommand(EmotionId.Happy), new PlayEmotionCommand(EmotionId.Sad));
+        Assert.Equal(new NextEmotionCommand(), new NextEmotionCommand());
+        Assert.Equal(new SetEmotionAmountCommand(0.65f), new SetEmotionAmountCommand(0.65f));
+        Assert.Equal(
+            new SetSceneEnabledCommand(SceneId.Looking, true),
+            new SetSceneEnabledCommand(SceneId.Looking, true));
         Assert.Equal(new SetAutoplayCommand(true), new SetAutoplayCommand(true));
         Assert.Equal(new StopCommand(), new StopCommand());
 
@@ -25,9 +29,9 @@ public sealed class AnimationCommandQueueTests
         var queue = new BoundedAnimationCommandQueue(capacity: 4);
         AnimationCommand[] commands =
         [
-            new PlaySceneCommand(SceneId.Watchful),
+            new PlayEmotionCommand(EmotionId.Happy),
             new SetAutoplayCommand(false),
-            new NextSceneCommand(),
+            new NextEmotionCommand(),
             new StopCommand(),
         ];
 
@@ -52,8 +56,8 @@ public sealed class AnimationCommandQueueTests
     public void Queue_RejectsNewestCommandWhenAtCapacity()
     {
         var queue = new BoundedAnimationCommandQueue(capacity: 2);
-        var first = new PlaySceneCommand(SceneId.Watchful);
-        var second = new PlaySceneCommand(SceneId.Frightened);
+        var first = new PlayEmotionCommand(EmotionId.Happy);
+        var second = new PlayEmotionCommand(EmotionId.Frightened);
         var rejected = new StopCommand();
 
         Assert.True(queue.TryPost(first));

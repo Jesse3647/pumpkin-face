@@ -18,6 +18,10 @@ public sealed record ProjectionCalibration
     public const float MaximumBrightness = 2f;
     public const float MinimumGamma = 0.25f;
     public const float MaximumGamma = 4f;
+    public const float MinimumCandleBrightness = 0.1f;
+    public const float MaximumCandleBrightness = 3f;
+    public const float MinimumShellThickness = 0.2f;
+    public const float MaximumShellThickness = 2.5f;
 
     public float OffsetX { get; init; }
 
@@ -42,6 +46,10 @@ public sealed record ProjectionCalibration
     public float Brightness { get; init; } = 1f;
 
     public float Gamma { get; init; } = 1f;
+
+    public float CandleBrightness { get; init; } = 1f;
+
+    public float ShellThickness { get; init; } = 1f;
 
     public static ProjectionCalibration Default { get; } = new();
 
@@ -69,6 +77,16 @@ public sealed record ProjectionCalibration
             MouthScaleY = Clamp(MouthScaleY, MinimumScale, MaximumScale, fallback.MouthScaleY),
             Brightness = Clamp(Brightness, MinimumBrightness, MaximumBrightness, fallback.Brightness),
             Gamma = Clamp(Gamma, MinimumGamma, MaximumGamma, fallback.Gamma),
+            CandleBrightness = Clamp(
+                CandleBrightness,
+                MinimumCandleBrightness,
+                MaximumCandleBrightness,
+                fallback.CandleBrightness),
+            ShellThickness = Clamp(
+                ShellThickness,
+                MinimumShellThickness,
+                MaximumShellThickness,
+                fallback.ShellThickness),
         };
     }
 
@@ -91,7 +109,17 @@ public sealed record ProjectionCalibration
             ?? ValidateField(nameof(MouthScaleX), MouthScaleX, MinimumScale, MaximumScale)
             ?? ValidateField(nameof(MouthScaleY), MouthScaleY, MinimumScale, MaximumScale)
             ?? ValidateField(nameof(Brightness), Brightness, MinimumBrightness, MaximumBrightness)
-            ?? ValidateField(nameof(Gamma), Gamma, MinimumGamma, MaximumGamma);
+            ?? ValidateField(nameof(Gamma), Gamma, MinimumGamma, MaximumGamma)
+            ?? ValidateField(
+                nameof(CandleBrightness),
+                CandleBrightness,
+                MinimumCandleBrightness,
+                MaximumCandleBrightness)
+            ?? ValidateField(
+                nameof(ShellThickness),
+                ShellThickness,
+                MinimumShellThickness,
+                MaximumShellThickness);
 
         return error is null;
     }

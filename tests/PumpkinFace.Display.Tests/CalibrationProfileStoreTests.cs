@@ -33,6 +33,8 @@ public sealed class CalibrationProfileStoreTests
                 MouthScaleY = 0.76f,
                 Brightness = 1.42f,
                 Gamma = 0.91f,
+                CandleBrightness = 1.75f,
+                ShellThickness = 1.35f,
             };
 
             var profile = store.CreateProfile("Front porch", calibration);
@@ -68,6 +70,8 @@ public sealed class CalibrationProfileStoreTests
             Assert.Equal(0.76f, profile.Calibration.MouthScaleY);
             Assert.Equal(1.42f, profile.Calibration.Brightness);
             Assert.Equal(0.91f, profile.Calibration.Gamma);
+            Assert.Equal(1.75f, profile.Calibration.CandleBrightness);
+            Assert.Equal(1.35f, profile.Calibration.ShellThickness);
             Assert.Equal(
                 ApplicationStateDocument.CurrentSchemaVersion,
                 reloaded.State.SchemaVersion);

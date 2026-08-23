@@ -6,9 +6,13 @@ namespace PumpkinFace.Core;
 /// </summary>
 public abstract record AnimationCommand;
 
-public sealed record PlaySceneCommand(SceneId Scene) : AnimationCommand;
+public sealed record PlayEmotionCommand(EmotionId Emotion) : AnimationCommand;
 
-public sealed record NextSceneCommand : AnimationCommand;
+public sealed record NextEmotionCommand : AnimationCommand;
+
+public sealed record SetEmotionAmountCommand(float Amount) : AnimationCommand;
+
+public sealed record SetSceneEnabledCommand(SceneId Scene, bool Enabled) : AnimationCommand;
 
 public sealed record SetAutoplayCommand(bool Enabled) : AnimationCommand;
 

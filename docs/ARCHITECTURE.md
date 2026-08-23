@@ -27,7 +27,7 @@ flowchart LR
 
 `src/PumpkinFace.Core` targets plain .NET 8 and has no Godot dependency. It contains:
 
-- `SceneId` and the `AnimationCommand` records.
+- `EmotionId`, action `SceneId`, and the `AnimationCommand` records.
 - `IAnimationCommandSink`, `IAnimationCommandSource`, and `BoundedAnimationCommandQueue`.
 - `SceneDirector`, deterministic timing, shuffle-bag selection, and transition snapshots.
 - `FacePose`, channel groups, clamping, and interpolation.
@@ -45,9 +45,12 @@ Keeping these types engine-independent makes scheduler and controller logic test
 | `App/AppRoot.cs` | Composition root, main-thread command drain, startup restoration, keyboard input, and component coordination |
 | `App/ProjectorHost.cs` | Separate native output window, display enumeration, fullscreen state, cursor behavior, and safe windowed fallback |
 | `Animation/SceneAnimationController.cs` | Runtime-authored `AnimationPlayer` clips and layered `AnimationTree` |
+| `Animation/ActionSceneController.cs` | Emotion-independent timed actions, including randomized Looking gaze targets |
 | `Animation/FacePoseDriver.cs` | Godot-animatable properties converted into a core `FacePose` |
 | `Rendering/FaceStage.cs` | Shared `SubViewport`, projection transform, resolution changes, guide visibility, and deterministic shader time |
-| `Rendering/FaceRig.cs` | Procedural eye, pupil, mouth, ember, charred-edge, and glow geometry |
+| `Rendering/FaceRig.cs` | 3D shell plus reference-contour morphing, carved depth, candle cavity, charred edge, and glow geometry |
+| `Rendering/CameraOrbitController.cs` | Bounded preview-drag orbit state and five-second idle return |
+| `Rendering/ReferenceFaceContours.cs` | Equalized vector endpoints traced from the frightened, happy, and sad source artwork |
 | `Rendering/ProjectionGuides.cs` | Face and framebuffer alignment overlays |
 | `Shaders/` | Animated carved-interior texture and soft glow passes |
 | `UI/OperatorPanel.cs` | Operator-only controls and status surface |
@@ -78,16 +81,15 @@ The queue rejects a new command when full rather than silently discarding a prev
 
 ## Scheduling and animation
 
-`SceneDirector` is constructed with the fixed seed `0x504B4E` in V1, making its shuffle and sampled durations reproducible. Autoplay behavior is:
+`SceneDirector` retains deterministic emotion timing and transition support, but the application leaves emotion autoplay disabled so the operator's selected emotion remains stable. Emotion durations are:
 
-- Neutral pause: 3–8 seconds.
-- Watchful: 9.5–10.5 seconds.
 - Frightened: 4.75–5.25 seconds.
-- Drowsy: 12–13 seconds.
-- Mischievous: 8–9 seconds.
-- A shuffled four-scene bag with no adjacent automatic repeats.
+- Happy: 5.75–6.25 seconds.
+- Sad: 5.75–6.25 seconds.
 
-A manual scene or **Next scene** starts immediately. When it interrupts a running expression, the `AnimationTree` crosses to the new state over 250 ms. The scene plays once, returns to neutral, and resumes the autoplay delay only when autoplay remains enabled. Disabling autoplay lets a running scene finish; `StopCommand` cancels immediately and disables autoplay, although V1 does not expose a Stop button.
+A manual emotion or **Next emotion** starts immediately. When it interrupts a running expression, the `AnimationTree` morphs directly to the new traced endpoint over 250 ms. After an emotion completes, its expression remains visible; no neutral face is generated.
+
+Action scenes are a separate composable overlay. `ActionSceneController` gives **Looking**, **Blinking**, **Talking**, and **Candle Sputter** independent clocks and channel state. Manual toggles can therefore loop in any combination without one action resetting another. Scene autoplay waits a randomized interval, chooses a short randomized combination, and repeats without modifying the selected emotion or its intensity.
 
 Each expression has two equivalent state-machine nodes backed by the same authored clip. Re-triggering the scene that is already playing alternates to its partner node, allowing a real 250 ms crossfade back to the beginning; a self-transition would either be ignored or restart abruptly. Scene requests received in one command-drain batch are coalesced to the final request. If another request arrives during a crossfade, it waits for that fade to finish and stretches its normalized clip over the director's remaining scene time, preventing queued state-machine travel from drifting away from scheduler completion.
 
@@ -95,13 +97,15 @@ Every authored scene is a normalized one-second clip. Its expression node stretc
 
 Tracks use channel-appropriate interpolation. Gaze, eyelid, and tremble beats use linear keys with tightly spaced moves and explicit holds for readable darts, blinks, and accents. Brows, pupils, mouth shapes, and candle intensity retain cubic interpolation for organic settling and restrained light changes.
 
-The `AnimationTree` evaluates three independent layers. An always-running `NeutralBaseline` supplies subtle breathing and candle variation. The expression state machine is converted to a delta by subtracting a constant reference pose, then added to that live baseline. A final filtered `SpeechMouthLayer` is currently silent and is restricted to the five mouth controls reserved for future visemes. Deterministic mixing keeps the additive math unnormalized.
+The `AnimationTree` evaluates three independent layers. An always-running ambient baseline supplies subtle candle variation. The expression state machine is converted to a delta by subtracting a constant numerical reference pose, then added to that baseline. This reference is only animation math and is never rendered as a fourth face. A final filtered `SpeechMouthLayer` is currently silent and is restricted to the five mouth controls reserved for future visemes. Deterministic mixing keeps the additive math unnormalized.
 
 ## Rendering pipeline
 
-`FaceStage` renders a 1600×900 design-space rig into a `SubViewport` sized to the selected projector output. It uses a fully black clear/background, resolution-independent polygon geometry, and shader-driven glow compatible with Godot's broad-hardware Compatibility renderer.
+`FaceStage` renders a 1600×900 calibrated canvas into a `SubViewport` sized to the selected projector output. `FaceRig` nests a fixed-resolution 3D viewport inside that canvas, allowing the projector calibration and operator drag handles to remain 2D while the face conforms to a curved pumpkin model. The clear/background remains black and all shaders target Godot's broad-hardware Compatibility renderer.
 
-`FaceRig` rebuilds friendly asymmetric wedge eyes and a broad crescent mouth from pose controls. Two upper and one offset lower pumpkin-material bridges deform with that mouth to create chunky traditional teeth, and they recede for rounded gasp/yawn poses so the same controls remain usable by future visemes.
+The operator preview forwards orbit drags to `CameraOrbitController`. It moves the actual orthographic `Camera3D` around the pumpkin rather than rotating the final texture, exposing surface curvature, feature parallax, and cut-wall depth. Orbit is clamped to safe presentation angles and begins a fast smooth return to the front view after five seconds without input. With alignment guides hidden, left-drag orbits; with guides visible, right-drag orbits while left-drag remains reserved for calibration.
+
+The 3D rig procedurally builds a lobed translucent shell, projects each feature onto its ellipsoidal front surface, and extrudes an inset ring toward the hollow interior to expose charred lips and cut-wall depth. Recessed feature meshes share animated candle shaders while a moving `OmniLight3D` warms the shell walls. Two upper and two lower tooth notches are authored directly into the mouth contour, so its cavity, rim, and cut walls remain one continuous carved piece.
 
 Every aperture is a procedural depth stack: restrained wide/tight spill, a thick soot-dark outer lip, directional cut-flesh wall quads, an offset dark cavity, and a smaller inset candle plane. Selected inner rims provide ember detail without tracing the entire opening like neon. Oversized dark pupils and small ember reflections remain readable against the warm cavity. The shaders receive an explicit animation clock, allowing normal real-time flame movement and frozen-time capture from the same code.
 
@@ -144,7 +148,7 @@ Capture mode is selected before normal UI and projector composition. It creates 
 
 - fixes the output at 1280×720;
 - disables guides and automatic shader-time advancement;
-- selects 13 fixed scene/progress pairs;
+- selects nine fixed expression/progress pairs, one reduced-intensity frame, two shell-thickness extremes, four action-scene frames, and two camera-orbit views;
 - waits three process frames for each pose to settle;
 - writes PNGs and optionally compares them to matching references;
 - uses luma RMSE with a maximum accepted difference of `0.035`;
@@ -180,13 +184,13 @@ Recommended safety defaults are loopback-only binding, explicit opt-in before LA
 
 ### Local AI control
 
-Run local inference outside the render loop, ideally in a worker or companion process. Give the model a small tool/schema that permits only high-level actions such as play scene, next, autoplay, and stop. Validate its output and post the resulting `AnimationCommand` through the same sink used by the operator and remote controller.
+Run local inference outside the render loop, ideally in a worker or companion process. Give the model a small tool/schema that permits only high-level actions such as select emotion, set emotion amount, play scene, next emotion, autoplay, and stop. Validate its output and post the resulting `AnimationCommand` through the same sink used by the operator and remote controller.
 
 Keep model latency, cancellation, and failures independent of the 60 FPS renderer. The bounded queue is backpressure, not long-term planning storage; discard or coalesce stale AI intent before posting. Projection calibration should not be model-controlled without an explicit operator authorization path.
 
 ### Additional scenes and render controls
 
-Adding a built-in expression currently requires coordinated changes to `SceneId`, `SceneTimings.For`, the runtime animation library/state machine, UI controls, and deterministic capture frames. Pose channels should remain normalized and renderer-independent. If a future feature needs a new channel, add it to `FacePose`, its `FacePoseChannels` group, driver, rig, clamps/interpolation tests, and speech filtering where relevant.
+Adding a built-in expression requires coordinated changes to `EmotionId`, `SceneTimings.For`, the runtime animation library/state machine, UI controls, and deterministic capture frames. New independent actions belong in `SceneId` and `ActionSceneController`. Pose channels should remain normalized and renderer-independent. If a future feature needs a new channel, add it to `FacePose`, its `FacePoseChannels` group, driver, rig, clamps/interpolation tests, and speech filtering where relevant.
 
 ## Verification boundaries
 

@@ -21,6 +21,8 @@ public sealed class ProjectionCalibrationTests
         Assert.Equal(1f, calibration.MouthScaleY);
         Assert.Equal(1f, calibration.Brightness);
         Assert.Equal(1f, calibration.Gamma);
+        Assert.Equal(1f, calibration.CandleBrightness);
+        Assert.Equal(1f, calibration.ShellThickness);
     }
 
     [Theory]
@@ -54,6 +56,8 @@ public sealed class ProjectionCalibrationTests
             MouthScaleY = 4f,
             Brightness = 5f,
             Gamma = 0f,
+            CandleBrightness = 8f,
+            ShellThickness = 0f,
         }.Normalize();
 
         Assert.Equal(ProjectionCalibration.MinimumOffset, normalized.OffsetX);
@@ -68,6 +72,8 @@ public sealed class ProjectionCalibrationTests
         Assert.Equal(ProjectionCalibration.MaximumScale, normalized.MouthScaleY);
         Assert.Equal(ProjectionCalibration.MaximumBrightness, normalized.Brightness);
         Assert.Equal(ProjectionCalibration.MinimumGamma, normalized.Gamma);
+        Assert.Equal(ProjectionCalibration.MaximumCandleBrightness, normalized.CandleBrightness);
+        Assert.Equal(ProjectionCalibration.MinimumShellThickness, normalized.ShellThickness);
         Assert.True(normalized.IsValid(out var error), error);
         Assert.Equal(normalized, normalized.Clamp());
     }
@@ -87,6 +93,8 @@ public sealed class ProjectionCalibrationTests
             MouthScaleX = 1.3f,
             Brightness = 1.4f,
             Gamma = 1.1f,
+            CandleBrightness = 1.85f,
+            ShellThickness = 1.4f,
         };
 
         var json = JsonSerializer.Serialize(expected);

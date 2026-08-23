@@ -35,6 +35,8 @@ public sealed partial class ProjectionPreview : Control
 
     public event Action<PreviewEdit>? TransformEdited;
 
+    public event Action<Vector2>? OrbitDragged;
+
     public bool HandlesVisible { get; set; }
 
     public ProjectionPreview()
@@ -91,16 +93,21 @@ public sealed partial class ProjectionPreview : Control
 
     public override void _GuiInput(InputEvent @event)
     {
-        if (!HandlesVisible)
-        {
-            return;
-        }
-
-        if (@event is InputEventMouseButton button && button.ButtonIndex == MouseButton.Left)
+        if (@event is InputEventMouseButton button &&
+            button.ButtonIndex is MouseButton.Left or MouseButton.Right)
         {
             if (button.Pressed)
             {
-                BeginDrag(button.Position);
+                if (button.ButtonIndex == MouseButton.Right || !HandlesVisible)
+                {
+                    _dragMode = DragMode.Orbit;
+                    _lastMouse = button.Position;
+                }
+                else
+                {
+                    BeginDrag(button.Position);
+                }
+
                 AcceptEvent();
             }
             else if (_dragMode != DragMode.None)
@@ -179,6 +186,17 @@ public sealed partial class ProjectionPreview : Control
                     TransformEdited?.Invoke(new PreviewEdit(PreviewEditKind.Rotate, Vector2.Zero, delta));
                     break;
                 }
+            case DragMode.Orbit:
+                {
+                    Vector2 delta = mouse - _lastMouse;
+                    _lastMouse = mouse;
+                    if (delta != Vector2.Zero)
+                    {
+                        OrbitDragged?.Invoke(delta);
+                    }
+
+                    break;
+                }
         }
     }
 
@@ -254,5 +272,6 @@ public sealed partial class ProjectionPreview : Control
         Move,
         Scale,
         Rotate,
+        Orbit,
     }
 }
