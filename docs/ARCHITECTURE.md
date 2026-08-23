@@ -46,6 +46,7 @@ Keeping these types engine-independent makes scheduler and controller logic test
 | `App/ProjectorHost.cs` | Separate native output window, display enumeration, fullscreen state, cursor behavior, and safe windowed fallback |
 | `Animation/SceneAnimationController.cs` | Runtime-authored `AnimationPlayer` clips and layered `AnimationTree` |
 | `Animation/ActionSceneController.cs` | Emotion-independent timed actions, including randomized Looking gaze targets |
+| `Animation/KokoroSpeechSynthesizer.cs` | One-time Kokoro model installation and local neural speech through sherpa-onnx |
 | `Animation/FacePoseDriver.cs` | Godot-animatable properties converted into a core `FacePose` |
 | `Rendering/FaceStage.cs` | Shared `SubViewport`, projection transform, resolution changes, guide visibility, and deterministic shader time |
 | `Rendering/FaceRig.cs` | 3D shell plus reference-contour morphing, carved depth, candle cavity, charred edge, and glow geometry |
@@ -89,7 +90,7 @@ The queue rejects a new command when full rather than silently discarding a prev
 
 A manual emotion or **Next emotion** starts immediately. When it interrupts a running expression, the `AnimationTree` morphs directly to the new traced endpoint over 250 ms. After an emotion completes, its expression remains visible; no neutral face is generated.
 
-Action scenes are a separate composable overlay. `ActionSceneController` gives **Looking**, **Blinking**, **Talking**, and **Candle Sputter** independent clocks and channel state. Manual actions can therefore run in any combination without one action resetting another. Looking, Blinking, and Candle Sputter loop while selected. Talking performs its fixed local “Happy Halloween” clip once against a matching viseme timeline, including a fully rounded mouth pose. When playback finishes, a smooth 360 ms speech blend restores the active expression before the Talking selection is removed. Scene autoplay waits a randomized interval, chooses a short randomized combination, and repeats without modifying the selected emotion or its intensity.
+Action scenes are a separate composable overlay. `ActionSceneController` gives **Looking**, **Blinking**, and **Candle Sputter** independent clocks and channel state. Manual actions can therefore run in any combination without one action resetting another, and each loops while selected. Typed speech temporarily uses an internal mouth-animation channel alongside those scenes. When playback finishes, a smooth 360 ms speech blend restores the active expression. Scene autoplay waits a randomized interval, chooses a short randomized combination, and repeats without modifying the selected emotion or its intensity.
 
 Each expression has two equivalent state-machine nodes backed by the same authored clip. Re-triggering the scene that is already playing alternates to its partner node, allowing a real 250 ms crossfade back to the beginning; a self-transition would either be ignored or restart abruptly. Scene requests received in one command-drain batch are coalesced to the final request. If another request arrives during a crossfade, it waits for that fade to finish and stretches its normalized clip over the director's remaining scene time, preventing queued state-machine travel from drifting away from scheduler completion.
 
@@ -97,7 +98,7 @@ Every authored scene is a normalized one-second clip. Its expression node stretc
 
 Tracks use channel-appropriate interpolation. Gaze, eyelid, and tremble beats use linear keys with tightly spaced moves and explicit holds for readable darts, blinks, and accents. Brows, pupils, mouth shapes, and candle intensity retain cubic interpolation for organic settling and restrained light changes.
 
-The `AnimationTree` evaluates three independent layers. An always-running ambient baseline supplies subtle candle variation. The expression state machine is converted to a delta by subtracting a constant numerical reference pose, then added to that baseline. This reference is only animation math and is never rendered as a fourth face. A final filtered `SpeechMouthLayer` is restricted to the five mouth controls reserved for visemes. The fixed Talking performance currently supplies these channels directly to the rendered pose. Deterministic mixing keeps the additive math unnormalized.
+The `AnimationTree` evaluates three independent layers. An always-running ambient baseline supplies subtle candle variation. The expression state machine is converted to a delta by subtracting a constant numerical reference pose, then added to that baseline. This reference is only animation math and is never rendered as a fourth face. A final filtered `SpeechMouthLayer` is restricted to the five mouth controls reserved for visemes. Typed speech supplies these channels directly to the rendered pose. Deterministic mixing keeps the additive math unnormalized.
 
 ## Rendering pipeline
 
@@ -160,11 +161,11 @@ The capture path reads back a GPU `ViewportTexture`. Run it in an active windowe
 
 ### Speech and lip sync
 
-The core defines `Viseme`, timestamped/weighted `VisemeFrame`, and `IAudioClock`. `ActionSceneController` drives a hand-authored viseme timeline for the bundled “Happy Halloween” recording. `SpeechPhrasePlanner` converts typed text to a deterministic viseme sequence, which is stretched over the measured duration of a WAV synthesized asynchronously by macOS. `MacSpeechSynthesizer` discovers installed natural English voices, passes the operator's selection to the system synthesizer, and defaults to Reed (English US) when available. Runtime mouth evaluation follows the audio player's position with output latency removed, so the audible clip remains the master clock rather than accumulated render delta.
+The core defines `Viseme`, timestamped/weighted `VisemeFrame`, and `IAudioClock`. `SpeechPhrasePlanner` converts typed text to a deterministic viseme sequence, which is stretched over the measured duration of the generated WAV. `KokoroSpeechSynthesizer` downloads the approximately 400 MB Kokoro model once into `user://models`, then uses sherpa-onnx for fully local neural synthesis. The operator can choose curated US and UK voices; Heart is the default. `MacSpeechSynthesizer` remains an explicit fallback and discovers installed natural English system voices. Runtime mouth evaluation follows the audio player's position with output latency removed, so the audible clip remains the master clock rather than accumulated render delta.
 
 `SceneAnimationController` also reserves a filtered `SpeechMouthLayer` in its `AnimationTree`. That additive layer is limited to `JawOpen`, `MouthWidth`, `MouthRoundness`, `LeftMouthCorner`, and `RightMouthCorner`; gaze, eyelids, brows, tremble, and lighting remain owned by the expression beneath it.
 
-The typed-speech path intentionally uses spelling-based approximation so it remains local, fast, and dependency-free. A higher-fidelity extension can replace `SpeechPhrasePlanner` with phoneme timing from a forced aligner or offline lip-sync model while preserving the same ordered `VisemeFrame` boundary. The existing direct mouth-pose application can also move into the reserved `SpeechMouthLayer` without changing scene composition. Audio must remain the master clock; visemes should never advance solely by accumulating render-frame delta.
+The typed-speech path keeps spelling-based mouth planning because sherpa-onnx's offline TTS result does not expose phoneme timestamps. A higher-fidelity extension can replace `SpeechPhrasePlanner` with timing from a forced aligner or offline lip-sync model while preserving the same ordered `VisemeFrame` boundary. The existing direct mouth-pose application can also move into the reserved `SpeechMouthLayer` without changing scene composition. Audio must remain the master clock; visemes should never advance solely by accumulating render-frame delta.
 
 ### Remote web control
 

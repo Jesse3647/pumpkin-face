@@ -23,29 +23,21 @@ public readonly record struct ActionSceneFrame(
 /// </summary>
 public sealed class ActionSceneController
 {
-    private static readonly SceneId[] Scenes = Enum.GetValues<SceneId>();
-    private static readonly PhraseKeyframe[] HappyHalloween =
+    private static readonly SceneId[] AutoplayScenes =
     [
-        new(0.00d, Viseme.Silence),
-        new(0.05d, Viseme.Ah),
-        new(0.30d, Viseme.Mbp),
-        new(0.37d, Viseme.Ih),
-        new(0.62d, Viseme.Silence),
-        new(0.69d, Viseme.Ah),
-        new(0.87d, Viseme.Eh),
-        new(0.98d, Viseme.L),
-        new(1.08d, Viseme.Oh),
-        new(1.18d, Viseme.Wq),
-        new(1.32d, Viseme.Ih),
-        new(1.52d, Viseme.DnSt),
-        new(1.65d, Viseme.Silence),
-        new(4.07d, Viseme.Silence),
+        SceneId.Looking,
+        SceneId.Blinking,
+        SceneId.CandleSputter,
     ];
     private readonly Random _random;
     private readonly HashSet<SceneId> _selectedScenes = [];
     private readonly Dictionary<SceneId, SceneState> _states = [];
-    private PhraseKeyframe[] _speechTimeline = [.. HappyHalloween];
-    private double _speechDuration = 4.07d;
+    private PhraseKeyframe[] _speechTimeline =
+    [
+        new(0d, Viseme.Silence),
+        new(0.2d, Viseme.Silence),
+    ];
+    private double _speechDuration = 0.2d;
     private double _autoplayDelay;
     private bool _manualSelection;
 
@@ -60,12 +52,6 @@ public sealed class ActionSceneController
     public ActionSceneFrame Frame { get; private set; } = ActionSceneFrame.Rest;
 
     public bool IsSelected(SceneId scene) => _selectedScenes.Contains(scene);
-
-    public void UseDefaultSpeech()
-    {
-        _speechTimeline = [.. HappyHalloween];
-        _speechDuration = 4.07d;
-    }
 
     public void ConfigureSpeech(IEnumerable<VisemeFrame> frames, TimeSpan duration)
     {
@@ -455,7 +441,7 @@ public sealed class ActionSceneController
     private void StartAutoplayCombination()
     {
         _states.Clear();
-        SceneId[] candidates = [.. Scenes];
+        SceneId[] candidates = [.. AutoplayScenes];
         for (int index = candidates.Length - 1; index > 0; index--)
         {
             int swap = _random.Next(index + 1);

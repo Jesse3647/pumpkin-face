@@ -28,6 +28,7 @@ public sealed class ActionSceneControllerTests
     public void MultipleSelections_ComposeIndependentChannels()
     {
         ActionSceneController controller = new(seed: 31);
+        ConfigureShortSpeech(controller);
         controller.SetSelected(SceneId.Looking, true);
         controller.SetSelected(SceneId.Blinking, true);
         controller.SetSelected(SceneId.Talking, true);
@@ -71,6 +72,7 @@ public sealed class ActionSceneControllerTests
     public void CandleSputter_ComposesWithPerformanceActions()
     {
         ActionSceneController controller = new(seed: 44);
+        ConfigureShortSpeech(controller);
         controller.SetSelected(SceneId.Talking, true);
         controller.SetSelected(SceneId.CandleSputter, true);
 
@@ -85,39 +87,6 @@ public sealed class ActionSceneControllerTests
 
         Assert.True(talked);
         Assert.True(sputtered);
-    }
-
-    [Fact]
-    public void Talking_PerformsHappyHalloweenWithDistinctVisemeShapes()
-    {
-        ActionSceneController controller = new(seed: 12);
-        controller.SetSelected(SceneId.Talking, true);
-
-        bool sawClosedConsonant = false;
-        bool sawWideVowel = false;
-        bool sawRoundedO = false;
-        for (int step = 0; step < 81; step++)
-        {
-            controller.Update(0.05);
-            ActionSceneFrame frame = controller.Frame;
-            Assert.True(frame.SpeechActive);
-            sawClosedConsonant |= frame.JawOpen < 0.05f;
-            sawWideVowel |= frame.MouthWidth > 0.85f && frame.JawOpen > 0.25f;
-            sawRoundedO |= frame.MouthRoundness > 0.85f &&
-                           frame.MouthWidth < 0.45f &&
-                           frame.JawOpen > 0.30f;
-        }
-
-        Assert.True(sawClosedConsonant);
-        Assert.True(sawWideVowel);
-        Assert.True(sawRoundedO);
-        Assert.Contains(SceneId.Talking, controller.ActiveScenes);
-
-        controller.Update(0.05);
-
-        Assert.DoesNotContain(SceneId.Talking, controller.ActiveScenes);
-        Assert.False(controller.IsSelected(SceneId.Talking));
-        Assert.Equal(ActionSceneFrame.Rest, controller.Frame);
     }
 
     [Fact]
@@ -191,6 +160,7 @@ public sealed class ActionSceneControllerTests
         Assert.True(controller.AutoplayEnabled);
         Assert.NotEmpty(controller.ActiveScenes);
         Assert.Empty(controller.SelectedScenes);
+        Assert.DoesNotContain(SceneId.Talking, controller.ActiveScenes);
     }
 
     [Fact]
@@ -200,10 +170,20 @@ public sealed class ActionSceneControllerTests
         controller.SetAutoplay(true);
         controller.Update(2.5);
 
-        controller.SetSelected(SceneId.Talking, true);
+        controller.SetSelected(SceneId.Looking, true);
 
         Assert.False(controller.AutoplayEnabled);
         Assert.Single(controller.ActiveScenes);
-        Assert.True(controller.IsSelected(SceneId.Talking));
+        Assert.True(controller.IsSelected(SceneId.Looking));
     }
+
+    private static void ConfigureShortSpeech(ActionSceneController controller) =>
+        controller.ConfigureSpeech(
+        [
+            new VisemeFrame(TimeSpan.Zero, Viseme.Silence, 1f),
+            new VisemeFrame(TimeSpan.FromSeconds(0.2), Viseme.Ah, 1f),
+            new VisemeFrame(TimeSpan.FromSeconds(0.5), Viseme.Oh, 1f),
+            new VisemeFrame(TimeSpan.FromSeconds(4.1), Viseme.Silence, 1f),
+        ],
+        TimeSpan.FromSeconds(4.1));
 }

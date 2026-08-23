@@ -3,7 +3,10 @@ using System.Text.RegularExpressions;
 
 namespace PumpkinFace.Display.Animation;
 
-public readonly record struct SpeechSynthesisResult(string Phrase, string WavePath);
+public readonly record struct SpeechSynthesisResult(
+    string Phrase,
+    string WavePath,
+    IReadOnlyList<PumpkinFace.Core.VisemeFrame>? Visemes = null);
 
 /// <summary>Creates a local WAV using the speech voice configured with macOS.</summary>
 public static class MacSpeechSynthesizer

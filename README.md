@@ -1,6 +1,6 @@
 # Pumpkin Face
 
-Pumpkin Face is a GPU-accelerated jack-o-lantern face for projection onto a physical pumpkin. A private operator window controls a separate, clean output window while both display the same rendered framebuffer. The three emotion endpoints use vector contours traced from the reference artwork and morph as deformable geometry. The speech controls perform a synchronized “Happy Halloween” preset or a locally synthesized custom phrase with distinct speech-mouth shapes.
+Pumpkin Face is a GPU-accelerated jack-o-lantern face for projection onto a physical pumpkin. A private operator window controls a separate, clean output window while both display the same rendered framebuffer. The three emotion endpoints use vector contours traced from the reference artwork and morph as deformable geometry. The speech controls synthesize typed phrases locally with distinct speech-mouth shapes.
 
 The traced carving is rendered on a lobed, hollow 3D pumpkin shell. Reference-matched eye sockets, pupils, catchlights, cut nose, and single-piece stepped mouth conform to the curved surface. Every opening has a soot-dark lip and visible shell thickness, revealing a candle-lit inner wall plus a modeled wax candle, wick, and animated flame. The flame, internal point light, rough-flesh bounce lighting, and soft opening halos share the same position and flicker. The exterior shell renders black but still writes depth: on a projector it contributes no synthetic pumpkin color, while pixel-accurate contour apertures reveal the interior and surrounding halos place a small amount of real light onto the physical pumpkin.
 
@@ -10,7 +10,7 @@ The face can switch between three clear emotions modeled after classic pumpkin-c
 - **Happy** opens into tall friendly eyes and a broad, toothy crescent smile.
 - **Sad** turns the eye peaks inward, lowers the gaze, and bends the mouth into a heavy frown.
 
-Emotions are selected independently and morph directly between traced expressions over 250 ms; there is no generated neutral face. The **Scenes** layer adds Looking, Blinking, Talking, and Candle Sputter without replacing the selected emotion. Scene controls can be combined—for example, Talking + Looking + Blinking. Looking, Blinking, and Candle Sputter loop while selected; Talking says “Happy Halloween” once, moves through closed, wide, and rounded vowel shapes, eases back to the active expression, and then deselects itself. The custom phrase field can synthesize up to 240 characters locally and performs the same one-shot mouth sequence and natural release. Its voice selector lists the installed natural English macOS voices and recommends Reed (English US) when available. Scene autoplay chooses short randomized combinations at randomized intervals without changing the face's emotion or intensity.
+Emotions are selected independently and morph directly between traced expressions over 250 ms; there is no generated neutral face. The **Scenes** layer adds Looking, Blinking, and Candle Sputter without replacing the selected emotion. Scene controls can be combined, and every selected scene loops until stopped. The custom phrase field can synthesize up to 240 characters locally, animate closed, wide, and rounded mouth shapes, then ease naturally back to the active expression. Speech can run while any scene combination remains selected. Its voice selector offers ten Kokoro neural voices plus installed macOS voices as fallbacks. Scene autoplay chooses short randomized combinations at randomized intervals without changing the face's emotion or intensity.
 
 ## Requirements
 
@@ -19,6 +19,7 @@ Emotions are selected independently and morph directly between traced expression
 - [Godot 4.7.1 .NET](https://godotengine.org/download/archive/4.7.1-stable/), not the standard non-.NET editor.
 - Matching Godot 4.7.1 export templates to produce the macOS application bundle.
 - A GPU and graphics driver capable of Godot's Compatibility renderer.
+- About 400 MB of free space for the local Kokoro voice model. It is downloaded once, on the first neural phrase, into the app's private data directory.
 
 The examples use `godot-mono` as the Godot executable. If it is not on your `PATH`, replace it with the editor executable, such as `/Applications/Godot_mono.app/Contents/MacOS/Godot` on macOS.
 
@@ -51,7 +52,7 @@ For a real projection, configure the projector as an **extended display**, not a
 
 ## Operator controls
 
-The operator window contains the exact projector preview, emotion controls, action scenes, pumpkin-lighting controls, named calibration profiles, and fine adjustment controls. The **Emotion amount** slider softens or strengthens the selected expression while preserving its traced identity. **Candle brightness** scales the flame, internal light, reflected cavity light, and shell transmission together. **Shell thickness** changes the recessed inner wall, carving depth, and visible width of the cut-flesh ring, so its effect remains apparent in the straight-on orthographic preview. Both values are stored in calibration profiles. The projector window contains only the face on black.
+The operator window contains the exact projector preview, emotion controls, action scenes, pumpkin-lighting controls, named calibration profiles, and fine adjustment controls. The **Emotion amount** slider softens or strengthens the selected expression while preserving its traced identity. **Candle brightness** scales the flame, internal light, reflected cavity light, and shell transmission together. **Shell thickness** changes the recessed inner wall, carving depth, and visible width of the cut-flesh ring, so its effect remains apparent in the straight-on orthographic preview. Both values are stored in calibration profiles. The projector window contains only the face on black. Typed speech defaults to **Neural — Heart**; the first use downloads the model, while later phrases synthesize entirely on the computer without an internet connection.
 
 | Control | Action |
 | --- | --- |
@@ -61,7 +62,6 @@ The operator window contains the exact projector preview, emotion controls, acti
 | `3` | Play Sad |
 | `L` | Toggle the Looking scene |
 | `B` | Toggle the Blinking scene |
-| `T` | Toggle the “Happy Halloween” Talking scene |
 | `C` | Toggle the Candle Sputter scene |
 | `A` | Toggle scene autoplay |
 | `F` | Toggle projector fullscreen |
@@ -160,6 +160,6 @@ Only the macOS export preset is currently supplied. The application architecture
 
 ## V1 boundaries
 
-V1 includes a fixed “Happy Halloween” performance and locally generated typed speech on macOS. Typed speech uses deterministic text-to-viseme timing stretched to the measured audio duration; it does not include acoustic phoneme inference. Remote control, a local AI model, camera-based alignment, keystone/corner-pin correction, sound effects, Developer ID signing, and notarization are not included. Projection calibration is an affine move/scale/rotate adjustment rather than surface mapping.
+V1 includes locally generated typed speech on macOS. Typed speech uses the local Kokoro neural model through sherpa-onnx, with macOS system voices retained as fallbacks. Deterministic text-to-viseme timing is stretched to the measured audio duration; it does not include acoustic phoneme inference. Remote control, a conversational local AI model, camera-based alignment, keystone/corner-pin correction, sound effects, Developer ID signing, and notarization are not included. Projection calibration is an affine move/scale/rotate adjustment rather than surface mapping.
 
 The project is intentionally scaffolded for those additions. See [Architecture and extension guide](docs/ARCHITECTURE.md) for the component boundaries and concrete next steps.

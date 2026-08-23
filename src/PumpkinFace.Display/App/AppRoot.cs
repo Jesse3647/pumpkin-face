@@ -14,7 +14,6 @@ namespace PumpkinFace.Display.App;
 /// </summary>
 public sealed partial class AppRoot : Node
 {
-    private const string HappyHalloweenAudioPath = "res://Assets/happy_halloween.wav";
     private readonly BoundedAnimationCommandQueue _commands = new(64);
 
     private CalibrationProfileStore? _profiles;
@@ -25,9 +24,9 @@ public sealed partial class AppRoot : Node
     private ProjectorHost? _projector;
     private OperatorPanel? _operator;
     private AudioStreamPlayer? _speechPlayer;
-    private AudioStream? _happyHalloweenStream;
     private Task<SpeechSynthesisResult>? _speechSynthesisTask;
-    private string _speechVoice = MacSpeechSynthesizer.SystemDefaultVoice;
+    private KokoroSpeechSynthesizer? _kokoroSpeech;
+    private string _speechVoice = "kokoro:af_heart";
     private bool _speechWasActive;
     private double _fpsRefreshElapsed;
     private bool _shuttingDown;
@@ -56,14 +55,14 @@ public sealed partial class AppRoot : Node
         _actionScenes.SetAutoplay(load.State.AutoplayEnabled);
         _projector = new ProjectorHost { Name = "ProjectorHost" };
         _operator = new OperatorPanel { Name = "OperatorPanel" };
-        _happyHalloweenStream = GD.Load<AudioStream>(HappyHalloweenAudioPath);
         _speechPlayer = new AudioStreamPlayer
         {
-            Name = "HappyHalloweenVoice",
-            Stream = _happyHalloweenStream,
+            Name = "SpeechVoice",
             VolumeDb = -1.5f,
         };
         _speechPlayer.Finished += OnSpeechFinished;
+        _kokoroSpeech = new KokoroSpeechSynthesizer(
+            ProjectSettings.GlobalizePath("user://models"));
         AddChild(_stage);
         AddChild(_animations);
         AddChild(_projector);
@@ -83,10 +82,9 @@ public sealed partial class AppRoot : Node
         _stage.ShowGuides = false;
         _operator.SetPreviewTexture(_stage.Texture);
         _operator.SetAutoplay(load.State.AutoplayEnabled);
-        IReadOnlyList<string> speechVoices = MacSpeechSynthesizer.FindAvailableNaturalVoices();
-        _speechVoice = speechVoices.Contains(MacSpeechSynthesizer.RecommendedVoice)
-            ? MacSpeechSynthesizer.RecommendedVoice
-            : speechVoices[0];
+        List<SpeechVoiceChoice> speechVoices = [.. KokoroSpeechSynthesizer.Voices];
+        speechVoices.AddRange(MacSpeechSynthesizer.FindAvailableNaturalVoices()
+            .Select(voice => new SpeechVoiceChoice($"mac:{voice}", $"macOS fallback — {voice}")));
         _operator.SetSpeechVoices(speechVoices, _speechVoice);
         _operator.SetGuides(false);
         _projector.SetTexture(_stage.Texture);
@@ -156,7 +154,6 @@ public sealed partial class AppRoot : Node
         if (talkingWasSelected && !_actionScenes.IsSelected(SceneId.Talking))
         {
             _operator.SetSelectedScenes(_actionScenes.SelectedScenes);
-            _operator.SetSpeechSceneLabel(null);
             _operator.SetStatus("Phrase finished");
         }
         ActionSceneFrame action = _actionScenes.Frame;
@@ -230,9 +227,6 @@ public sealed partial class AppRoot : Node
             case Key.B:
                 ToggleScene(SceneId.Blinking);
                 break;
-            case Key.T:
-                ToggleScene(SceneId.Talking);
-                break;
             case Key.C:
                 ToggleScene(SceneId.CandleSputter);
                 break;
@@ -274,6 +268,20 @@ public sealed partial class AppRoot : Node
         catch (Exception exception)
         {
             GD.PushError($"Could not save Pumpkin Face settings during shutdown: {exception.Message}");
+        }
+
+        // Do not tear down native inference underneath an in-flight worker when
+        // the operator closes the app during synthesis.
+        if (_speechSynthesisTask is null or { IsCompleted: true })
+        {
+            try
+            {
+                _kokoroSpeech?.Dispose();
+            }
+            catch (Exception exception)
+            {
+                GD.PushWarning($"Could not release the neural voice cleanly: {exception.Message}");
+            }
         }
     }
 
@@ -358,12 +366,11 @@ public sealed partial class AppRoot : Node
 
             if (command is SetSceneEnabledCommand scene)
             {
-                if (scene is { Scene: SceneId.Talking, Enabled: true })
+                // Talking is an internal channel started only by typed speech;
+                // it is no longer exposed as a selectable scene.
+                if (scene.Scene == SceneId.Talking)
                 {
-                    _actionScenes!.UseDefaultSpeech();
-                    _speechPlayer!.Stop();
-                    _speechPlayer.Stream = _happyHalloweenStream;
-                    _operator!.SetSpeechSceneLabel(null);
+                    continue;
                 }
                 _actionScenes!.SetSelected(scene.Scene, scene.Enabled);
                 if (scene.Enabled)
@@ -385,10 +392,7 @@ public sealed partial class AppRoot : Node
             {
                 if (autoplay.Enabled)
                 {
-                    _actionScenes!.UseDefaultSpeech();
                     _speechPlayer!.Stop();
-                    _speechPlayer.Stream = _happyHalloweenStream;
-                    _operator!.SetSpeechSceneLabel(null);
                 }
                 _actionScenes!.SetAutoplay(autoplay.Enabled);
                 _profiles!.SetAutoplayEnabled(autoplay.Enabled);
@@ -465,8 +469,20 @@ public sealed partial class AppRoot : Node
         _operator!.SetAutoplay(false);
         _operator.SetSelectedScenes(_actionScenes.SelectedScenes);
         _operator.SetSpeechBusy(true);
-        _operator.SetStatus("Preparing the pumpkin's voice…");
-        _speechSynthesisTask = MacSpeechSynthesizer.SynthesizeAsync(normalized, _speechVoice);
+        if (_speechVoice.StartsWith("kokoro:", StringComparison.Ordinal))
+        {
+            _operator.SetStatus(
+                "Preparing local neural speech… The first phrase downloads and loads the model.");
+            _speechSynthesisTask = _kokoroSpeech!.SynthesizeAsync(normalized, _speechVoice);
+        }
+        else
+        {
+            string macVoice = _speechVoice.StartsWith("mac:", StringComparison.Ordinal)
+                ? _speechVoice["mac:".Length..]
+                : MacSpeechSynthesizer.SystemDefaultVoice;
+            _operator.SetStatus("Preparing the macOS fallback voice…");
+            _speechSynthesisTask = MacSpeechSynthesizer.SynthesizeAsync(normalized, macVoice);
+        }
     }
 
     private void CompleteSpeechSynthesisIfReady()
@@ -483,11 +499,12 @@ public sealed partial class AppRoot : Node
             SpeechSynthesisResult result = completed.GetAwaiter().GetResult();
             AudioStreamWav stream = AudioStreamWav.LoadFromFile(result.WavePath);
             TimeSpan duration = TimeSpan.FromSeconds(stream.GetLength());
-            _actionScenes!.ConfigureSpeech(SpeechPhrasePlanner.Plan(result.Phrase, duration), duration);
+            IReadOnlyList<VisemeFrame> visemes = result.Visemes ??
+                SpeechPhrasePlanner.Plan(result.Phrase, duration);
+            _actionScenes!.ConfigureSpeech(visemes, duration);
             _speechPlayer!.Stream = stream;
             _actionScenes.SetSelected(SceneId.Talking, true);
             _operator.SetSelectedScenes(_actionScenes.SelectedScenes);
-            _operator.SetSpeechSceneLabel(result.Phrase);
             _operator.ClearSpeechPhrase();
             _operator.SetStatus($"Speaking: “{result.Phrase}”");
         }

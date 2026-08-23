@@ -60,7 +60,7 @@ public sealed partial class OperatorPanel : Control
     private LineEdit? _speechPhrase;
     private Button? _speakButton;
     private OptionButton? _speechVoicePicker;
-    private readonly List<string> _speechVoices = [];
+    private readonly List<SpeechVoiceChoice> _speechVoices = [];
     private HSlider? _emotionAmountSlider;
     private Label? _emotionAmountValue;
     private CheckButton? _guidesToggle;
@@ -214,17 +214,7 @@ public sealed partial class OperatorPanel : Control
         }
     }
 
-    public void SetSpeechSceneLabel(string? phrase)
-    {
-        if (_sceneToggles.TryGetValue(SceneId.Talking, out CheckButton? toggle))
-        {
-            toggle.Text = string.IsNullOrWhiteSpace(phrase)
-                ? "Happy Halloween  [T]"
-                : $"Speaking — {Shorten(phrase, 32)}";
-        }
-    }
-
-    public void SetSpeechVoices(IEnumerable<string> voices, string selectedVoice)
+    public void SetSpeechVoices(IEnumerable<SpeechVoiceChoice> voices, string selectedVoice)
     {
         _speechVoices.Clear();
         _speechVoices.AddRange(voices);
@@ -238,8 +228,8 @@ public sealed partial class OperatorPanel : Control
         int selectedIndex = 0;
         for (int index = 0; index < _speechVoices.Count; index++)
         {
-            _speechVoicePicker.AddItem(_speechVoices[index]);
-            if (_speechVoices[index] == selectedVoice)
+            _speechVoicePicker.AddItem(_speechVoices[index].Label);
+            if (_speechVoices[index].Id == selectedVoice)
             {
                 selectedIndex = index;
             }
@@ -494,13 +484,12 @@ public sealed partial class OperatorPanel : Control
         content.AddChild(_autoplayToggle);
         content.AddChild(new Label
         {
-            Text = "Select any combination. Happy Halloween plays once; other actions loop.",
+            Text = "Select any combination. Selected scenes repeat until stopped.",
             Modulate = new Color("8d8d98"),
         });
         GridContainer scenes = new() { Columns = 1 };
         AddActionSceneButton(scenes, "Looking  [L]", SceneId.Looking);
         AddActionSceneButton(scenes, "Blinking  [B]", SceneId.Blinking);
-        AddActionSceneButton(scenes, "Happy Halloween  [T]", SceneId.Talking);
         AddActionSceneButton(scenes, "Candle sputter  [C]", SceneId.CandleSputter);
         content.AddChild(scenes);
 
@@ -511,10 +500,15 @@ public sealed partial class OperatorPanel : Control
         {
             if (!_updating && index >= 0 && index < _speechVoices.Count)
             {
-                SpeechVoiceChanged?.Invoke(_speechVoices[(int)index]);
+                SpeechVoiceChanged?.Invoke(_speechVoices[(int)index].Id);
             }
         };
         content.AddChild(_speechVoicePicker);
+        content.AddChild(new Label
+        {
+            Text = "Neural voices run locally. First use downloads the model once.",
+            Modulate = new Color("8d8d98"),
+        });
         _speechPhrase = new LineEdit
         {
             PlaceholderText = "Type what the pumpkin should say",
@@ -537,9 +531,6 @@ public sealed partial class OperatorPanel : Control
             SpeakPhraseRequested?.Invoke(phrase);
         }
     }
-
-    private static string Shorten(string value, int maximumLength) =>
-        value.Length <= maximumLength ? value : $"{value[..(maximumLength - 1)]}…";
 
     private Control BuildPumpkinLightingCard()
     {
