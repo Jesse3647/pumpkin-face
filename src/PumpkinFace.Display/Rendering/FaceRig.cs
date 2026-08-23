@@ -11,6 +11,7 @@ namespace PumpkinFace.Display.Rendering;
 public sealed partial class FaceRig : Node2D
 {
     public static readonly Vector2 DesignSize = new(1600f, 900f);
+    public static readonly Vector2I ModelRenderSize = new(3200, 1800);
 
     private const string ShellShaderPath = "res://Shaders/pumpkin_shell_3d.gdshader";
     private const string InteriorShaderPath = "res://Shaders/pumpkin_interior_3d.gdshader";
@@ -168,7 +169,10 @@ public sealed partial class FaceRig : Node2D
         _modelViewport = new SubViewport
         {
             Name = "Pumpkin3DViewport",
-            Size = new Vector2I((int)DesignSize.X, (int)DesignSize.Y),
+            // Render the curved face at 2x the stable design canvas. The
+            // resulting supersampling keeps carved diagonals and thin shell
+            // edges smooth after the projector scales the 1600x900 layout.
+            Size = ModelRenderSize,
             Disable3D = false,
             TransparentBg = true,
             HandleInputLocally = false,
@@ -229,6 +233,10 @@ public sealed partial class FaceRig : Node2D
             Name = "Pumpkin3DRender",
             Texture = _modelViewport.GetTexture(),
             Centered = true,
+            Scale = new Vector2(
+                DesignSize.X / ModelRenderSize.X,
+                DesignSize.Y / ModelRenderSize.Y),
+            TextureFilter = CanvasItem.TextureFilterEnum.Linear,
         };
         AddChild(_modelSurface);
 
@@ -292,13 +300,11 @@ public sealed partial class FaceRig : Node2D
         _leftEye = NewCarvedFeature(
             "LeftEye",
             NewHalo(0.11f),
-            innerScale: 0.955f,
             charScale: 1.022f,
             haloScale: 1.13f);
         _rightEye = NewCarvedFeature(
             "RightEye",
             NewHalo(0.11f),
-            innerScale: 0.955f,
             charScale: 1.022f,
             haloScale: 1.13f);
         _nose = NewCarvedFeature(
@@ -308,7 +314,6 @@ public sealed partial class FaceRig : Node2D
         _mouth = NewCarvedFeature(
             "Mouth",
             NewHalo(0.085f, 0.75f),
-            innerScale: 0.970f,
             charScale: 1.016f,
             haloScale: 1.09f);
     }
@@ -334,7 +339,6 @@ public sealed partial class FaceRig : Node2D
     private CarvedFeature3D NewCarvedFeature(
         string name,
         ShaderMaterial haloMaterial,
-        float innerScale = 0.86f,
         float charScale = 1.055f,
         float haloScale = 1.14f) =>
         new(
@@ -343,7 +347,6 @@ public sealed partial class FaceRig : Node2D
             _charMaterial!,
             _wallMaterial!,
             haloMaterial,
-            innerScale,
             charScale,
             haloScale);
 
@@ -360,7 +363,11 @@ public sealed partial class FaceRig : Node2D
         _innerWall = new MeshInstance3D
         {
             Name = "CandleLitInnerWall",
-            Mesh = BuildPumpkinMesh(30, 80, InnerWallScale(), inward: true),
+            Mesh = BuildPumpkinMesh(
+                50,
+                144,
+                inwardOffset: ShellThicknessWorld(_calibration.ShellThickness),
+                inward: true),
             MaterialOverride = _interiorMaterial,
         };
         _modelRoot.AddChild(_innerWall);
@@ -1020,24 +1027,25 @@ public sealed partial class FaceRig : Node2D
         }
     }
 
-    private float InnerWallScale()
-    {
-        float thickness = Mathf.Clamp(_calibration.ShellThickness, 0.2f, 2.5f);
-        return Mathf.Clamp(1f - 0.035f * Mathf.Pow(thickness, 1.25f), 0.88f, 0.995f);
-    }
+    private static float ShellThicknessWorld(float thickness) =>
+        0.12f * Mathf.Clamp(thickness, 0.2f, 2.5f);
 
     private void UpdateShellThickness()
     {
         if (_innerWall is not null)
         {
-            _innerWall.Mesh = BuildPumpkinMesh(30, 80, InnerWallScale(), inward: true);
+            _innerWall.Mesh = BuildPumpkinMesh(
+                50,
+                144,
+                inwardOffset: ShellThicknessWorld(_calibration.ShellThickness),
+                inward: true);
         }
     }
 
     private static ArrayMesh BuildPumpkinMesh(
         int latitudeSegments,
         int longitudeSegments,
-        float radiusScale = 1f,
+        float inwardOffset = 0f,
         bool inward = false)
     {
         List<Vector3> vertices = [];
@@ -1048,20 +1056,13 @@ public sealed partial class FaceRig : Node2D
         {
             float v = latitude / (float)latitudeSegments;
             float theta = v * Mathf.Pi;
-            float ring = Mathf.Sin(theta);
-                float y = Mathf.Cos(theta) * PumpkinRadiusY * radiusScale;
             for (int longitude = 0; longitude <= longitudeSegments; longitude++)
             {
                 float u = longitude / (float)longitudeSegments;
                 float phi = u * Mathf.Tau;
-                float lobe = 1f + Mathf.Cos(phi * 10f) * 0.075f;
-                float x = Mathf.Cos(phi) * ring * PumpkinRadiusX * lobe * radiusScale;
-                float z = Mathf.Sin(phi) * ring * PumpkinRadiusZ * lobe * radiusScale;
-                vertices.Add(new Vector3(x, y, z));
-                Vector3 normal = new Vector3(
-                    x / (PumpkinRadiusX * PumpkinRadiusX),
-                    y / (PumpkinRadiusY * PumpkinRadiusY),
-                    z / (PumpkinRadiusZ * PumpkinRadiusZ)).Normalized();
+                Vector3 surface = PumpkinSurfacePoint(theta, phi);
+                Vector3 normal = PumpkinSurfaceNormal(theta, phi);
+                vertices.Add(surface - normal * inwardOffset);
                 normals.Add(inward ? -normal : normal);
                 uvs.Add(new Vector2(u, v));
             }
@@ -1145,16 +1146,58 @@ public sealed partial class FaceRig : Node2D
         return BuildMesh([.. vertices], [.. normals], [.. uvs], [.. indices]);
     }
 
-    private static Vector3 SurfacePoint(Vector2 designPoint, float depthOffset)
+    private static Vector3 PumpkinSurfacePoint(float theta, float phi)
+    {
+        float ring = Mathf.Sin(theta);
+        float lobe = 1f + Mathf.Cos(phi * 10f) * 0.045f;
+        return new Vector3(
+            Mathf.Cos(phi) * ring * PumpkinRadiusX,
+            Mathf.Cos(theta) * PumpkinRadiusY,
+            Mathf.Sin(phi) * ring * PumpkinRadiusZ * lobe);
+    }
+
+    private static Vector3 PumpkinSurfaceNormal(float theta, float phi)
+    {
+        const float epsilon = 0.001f;
+        float thetaBefore = Mathf.Max(0f, theta - epsilon);
+        float thetaAfter = Mathf.Min(Mathf.Pi, theta + epsilon);
+        Vector3 thetaTangent = PumpkinSurfacePoint(thetaAfter, phi) -
+                               PumpkinSurfacePoint(thetaBefore, phi);
+        Vector3 phiTangent = PumpkinSurfacePoint(theta, phi + epsilon) -
+                             PumpkinSurfacePoint(theta, phi - epsilon);
+        Vector3 normal = phiTangent.Cross(thetaTangent);
+        Vector3 surface = PumpkinSurfacePoint(theta, phi);
+        if (normal.LengthSquared() < 0.000001f)
+        {
+            normal = surface.Normalized();
+        }
+        else
+        {
+            normal = normal.Normalized();
+            if (normal.Dot(surface) < 0f)
+            {
+                normal = -normal;
+            }
+        }
+        return normal;
+    }
+
+    private static SurfaceSample SurfaceAt(Vector2 designPoint)
     {
         float x = designPoint.X / DesignToWorldScale;
         float y = -designPoint.Y / DesignToWorldScale;
-        float normalized = 1f -
-            x * x / (PumpkinRadiusX * PumpkinRadiusX) -
-            y * y / (PumpkinRadiusY * PumpkinRadiusY);
-        float z = PumpkinRadiusZ * Mathf.Sqrt(Mathf.Max(0.055f, normalized));
-        float rib = 1f + Mathf.Cos(Mathf.Atan2(z, x) * 10f) * 0.045f;
-        return new Vector3(x, y, z * rib + depthOffset);
+        float theta = Mathf.Acos(Mathf.Clamp(y / PumpkinRadiusY, -1f, 1f));
+        float ring = Mathf.Max(0.001f, Mathf.Sin(theta));
+        float phi = Mathf.Acos(Mathf.Clamp(x / (PumpkinRadiusX * ring), -1f, 1f));
+        return new SurfaceSample(
+            PumpkinSurfacePoint(theta, phi),
+            PumpkinSurfaceNormal(theta, phi));
+    }
+
+    private static Vector3 SurfacePoint(Vector2 designPoint, float normalOffset)
+    {
+        SurfaceSample surface = SurfaceAt(designPoint);
+        return surface.Position + surface.Normal * normalOffset;
     }
 
     private static ArrayMesh BuildFaceMesh(Vector2[] points, float depthOffset)
@@ -1162,7 +1205,7 @@ public sealed partial class FaceRig : Node2D
         Vector2[] cleanPoints = SanitizeContour(points);
         int[] triangles = Geometry2D.TriangulatePolygon(cleanPoints);
         Vector3[] vertices = cleanPoints.Select(point => SurfacePoint(point, depthOffset)).ToArray();
-        Vector3[] normals = vertices.Select(vertex => vertex.Normalized()).ToArray();
+        Vector3[] normals = cleanPoints.Select(point => SurfaceAt(point).Normal).ToArray();
         return BuildMesh(vertices, normals, BuildUvs(cleanPoints), triangles);
     }
 
@@ -1206,6 +1249,45 @@ public sealed partial class FaceRig : Node2D
             indices[offset + 1] = next * 2;
             indices[offset + 2] = i * 2 + 1;
             indices[offset + 3] = i * 2 + 1;
+            indices[offset + 4] = next * 2;
+            indices[offset + 5] = next * 2 + 1;
+        }
+
+        return BuildMesh(vertices, normals, uvs, indices);
+    }
+
+    private static ArrayMesh BuildShellCutWall(Vector2[] points, float shellThickness)
+    {
+        Vector2[] cleanPoints = SanitizeContour(points);
+        int count = cleanPoints.Length;
+        Vector3[] vertices = new Vector3[count * 2];
+        Vector3[] normals = new Vector3[count * 2];
+        Vector2[] uvs = new Vector2[count * 2];
+        int[] indices = new int[count * 6];
+        float thickness = ShellThicknessWorld(shellThickness);
+        for (int index = 0; index < count; index++)
+        {
+            SurfaceSample surface = SurfaceAt(cleanPoints[index]);
+            vertices[index * 2] = surface.Position;
+            vertices[index * 2 + 1] = surface.Position - surface.Normal * thickness;
+            int next = (index + 1) % count;
+            SurfaceSample nextSurface = SurfaceAt(cleanPoints[next]);
+            Vector3 tangent = nextSurface.Position - surface.Position;
+            Vector3 depth = -surface.Normal * thickness;
+            Vector3 wallNormal = tangent.Cross(depth).Normalized();
+            if (wallNormal.Z < 0f)
+            {
+                wallNormal = -wallNormal;
+            }
+            normals[index * 2] = wallNormal;
+            normals[index * 2 + 1] = wallNormal;
+            uvs[index * 2] = new Vector2(index / (float)count, 0f);
+            uvs[index * 2 + 1] = new Vector2(index / (float)count, 1f);
+            int offset = index * 6;
+            indices[offset] = index * 2;
+            indices[offset + 1] = next * 2;
+            indices[offset + 2] = index * 2 + 1;
+            indices[offset + 3] = index * 2 + 1;
             indices[offset + 4] = next * 2;
             indices[offset + 5] = next * 2 + 1;
         }
@@ -1276,13 +1358,14 @@ public sealed partial class FaceRig : Node2D
         float RightCorner,
         float Roundness);
 
+    private readonly record struct SurfaceSample(Vector3 Position, Vector3 Normal);
+
     private sealed class CarvedFeature3D
     {
         private readonly MeshInstance3D _halo;
         private readonly ShaderMaterial _haloMaterial;
         private readonly MeshInstance3D _charredRim;
         private readonly MeshInstance3D _cutWall;
-        private readonly float _innerScale;
         private readonly float _charScale;
         private readonly float _haloScale;
 
@@ -1292,11 +1375,9 @@ public sealed partial class FaceRig : Node2D
             Material charMaterial,
             Material wallMaterial,
             ShaderMaterial haloMaterial,
-            float innerScale,
             float charScale,
             float haloScale)
         {
-            _innerScale = innerScale;
             _charScale = charScale;
             _haloScale = haloScale;
             _haloMaterial = haloMaterial;
@@ -1312,10 +1393,6 @@ public sealed partial class FaceRig : Node2D
                 return;
             }
 
-            float thickness = Mathf.Clamp(shellThickness, 0.2f, 2.5f);
-            float baseInset = 1f - _innerScale;
-            float visibleInnerScale = Mathf.Clamp(1f - baseInset * thickness, 0.68f, 0.995f);
-            Vector2[] inner = ScaleContour(points, visibleInnerScale);
             Vector2 center = CenterOf(points);
             float minimumY = points.Min(point => point.Y);
             float maximumY = points.Max(point => point.Y);
@@ -1326,11 +1403,14 @@ public sealed partial class FaceRig : Node2D
             _halo.Mesh = BuildRingMesh(
                 ScaleContour(points, _haloScale),
                 points,
-                0.175f,
-                0.160f);
-            _charredRim.Mesh = BuildRingMesh(ScaleContour(points, _charScale), points, 0.105f, 0.075f);
-            float innerDepth = -0.115f * thickness;
-            _cutWall.Mesh = BuildRingMesh(points, inner, 0.070f, innerDepth);
+                0.014f,
+                0.010f);
+            _charredRim.Mesh = BuildRingMesh(
+                ScaleContour(points, _charScale),
+                points,
+                0.010f,
+                0.004f);
+            _cutWall.Mesh = BuildShellCutWall(points, shellThickness);
         }
 
         private static MeshInstance3D NewMesh(string name, Material material, Node3D parent)
