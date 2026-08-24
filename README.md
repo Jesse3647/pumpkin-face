@@ -1,18 +1,12 @@
 # Pumpkin Face
 
-Pumpkin Face is a GPU-accelerated jack-o-lantern face for projection onto a physical pumpkin. A private operator window controls a separate, clean output window while both display the same rendered framebuffer. The three emotion endpoints use vector contours traced from the reference artwork and morph as deformable geometry. The speech controls synthesize typed phrases locally with distinct speech-mouth shapes.
+Pumpkin Face is a cross-platform puppeteering app for projecting an animated jack-o-lantern face onto a physical pumpkin. A private operator window controls a separate, clean projector output, so the performer can change the character without showing controls to the audience.
 
-The curved 3D face is internally rendered at 3200×1800 and downsampled into the stable 1600×900 design canvas. This 2× supersampling smooths carved edges, pupils, and thin shell highlights while leaving calibration coordinates and the selected projector resolution unchanged.
+![Pumpkin Face operator window with a live projection preview and performance controls](docs/images/operator-window.png)
 
-The traced carving is rendered on a lobed, hollow 3D pumpkin shell. Its interior is derived from the same exterior surface by moving inward along the surface normals, and every cut wall joins the matching exterior and interior boundary points. The shell-thickness control therefore changes a real wall depth instead of resizing a separate inner prop. Reference-matched eye sockets, pupils, catchlights, cut nose, and single-piece stepped mouth conform to that shared surface. Every opening has a soot-dark lip and visible shell thickness, revealing a candle-lit inner wall plus a modeled wax candle, wick, and animated flame. The flame, internal point light, rough-flesh bounce lighting, cut-wall shading, and soft opening halos share the same position and flicker. Pale, fibrous cut surfaces use broad warm reflection and a restrained damp highlight, while the darker inner rind receives softer multi-bounce illumination. Downward-facing upper cuts receive direct candlelight while lower sills retain dimmer bounce. The larger mouth carries stronger near-flame bounce and a restrained outward spill, representing candlelight escaping onto the real pumpkin without creating a visible aura. The exterior shell renders black but still writes depth: on a projector it contributes no synthetic pumpkin color, while pixel-accurate contour apertures reveal the interior and surrounding halos place a small amount of real light onto the physical pumpkin.
+The operator can switch between frightened, happy, and sad expressions; combine looking, blinking, and candle-sputter scenes; type phrases for locally generated speech; and calibrate the face to the pumpkin and projector. Scene autoplay can run the decoration unattended.
 
-The face can switch between three clear emotions modeled after classic pumpkin-cutout expressions:
-
-- **Frightened** uses outward-peaked eyes, smaller pupils, a deep frown, and a restrained tremble.
-- **Happy** opens into tall friendly eyes and a broad, toothy crescent smile.
-- **Sad** turns the eye peaks inward, lowers the gaze, and bends the mouth into a heavy frown.
-
-Emotions are selected independently and morph directly between traced expressions over 250 ms; there is no generated neutral face. The **Scenes** layer adds Looking, Blinking, and Candle Sputter without replacing the selected emotion. Scene controls can be combined, and every selected scene loops until stopped. The custom phrase field can synthesize up to 240 characters locally, animate closed, wide, and rounded mouth shapes, then ease naturally back to the active expression. Speech can run while any scene combination remains selected. Its voice selector offers all 28 American and British English voices included with the Kokoro model. Scene autoplay chooses short randomized combinations at randomized intervals without changing the face's emotion or intensity.
+The projected face is rendered as a GPU-accelerated 3D carving with recessed cut walls, candlelight, deformable expressions, and speech-ready mouth geometry. Everything outside the carving remains black so the physical pumpkin supplies the visible surface.
 
 ## Requirements
 
@@ -159,9 +153,3 @@ godot-mono --headless --path src/PumpkinFace.Display \
 The preset creates a universal macOS bundle using Apple's system `codesign` with the certificate-free `-` ad-hoc identity. It has no Apple Developer ID identity and is not notarized; the ad-hoc signature is required for a reliable launch on Apple Silicon but does not establish a trusted publisher. On another Mac, Finder may require **Control-click → Open** on first launch. Developer ID signing and notarization are intentionally outside V1.
 
 Only the macOS export preset is currently supplied. The application architecture is portable, but Windows and Linux packages require corresponding Godot export presets and platform testing.
-
-## V1 boundaries
-
-V1 includes locally generated typed speech on macOS. Typed speech uses the local Kokoro neural model through sherpa-onnx. Deterministic text-to-viseme timing is stretched to the measured audio duration; it does not include acoustic phoneme inference. Remote control, a conversational local AI model, camera-based alignment, keystone/corner-pin correction, sound effects, Developer ID signing, and notarization are not included. Projection calibration is an affine move/scale/rotate adjustment rather than surface mapping.
-
-The project is intentionally scaffolded for those additions. See [Architecture and extension guide](docs/ARCHITECTURE.md) for the component boundaries and concrete next steps.
