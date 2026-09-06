@@ -4,7 +4,7 @@ Pumpkin Face is a cross-platform puppeteering app for projecting an animated jac
 
 ![Pumpkin Face operator window with a live projection preview and performance controls](docs/images/operator-window.png)
 
-The operator can switch between frightened, happy, and sad expressions; combine looking, blinking, and candle-sputter scenes; type phrases for locally generated speech; and calibrate the face to the pumpkin and projector. Scene autoplay can run the decoration unattended.
+The operator can switch between frightened, happy, and sad expressions; perform directed looks, winks, tilts, nods, shakes, surprise, and delight; type phrases for locally generated speech; and calibrate the face to the pumpkin and projector. Curious idle, listening, and thinking behaviors can keep the character attentive between commands. Autoplay runs coordinated curious idle unattended.
 
 The projected face is rendered as a GPU-accelerated 3D carving with recessed cut walls, candlelight, deformable expressions, and speech-ready mouth geometry. Everything outside the carving remains black so the physical pumpkin supplies the visible surface.
 
@@ -67,6 +67,18 @@ The keyboard shortcuts apply while the operator application has keyboard focus. 
 
 Drag normally inside the operator preview to orbit the 3D camera around the pumpkin. When alignment guides are visible, right-drag performs the orbit so left-drag can continue moving and resizing the calibrated projection. Five seconds after the last orbit input, the camera quickly returns to its default front view.
 
+### Character performance
+
+The **Character performance** card provides one-shot gestures, nine audience-relative gaze targets with adjustable hold time, gesture intensity, and whole-face motion amount. **Idle**, **Listening**, and **Thinking** coordinate attention and blinking; they describe the performance and do not use a microphone or camera. Select **Rest** to disable autonomous behavior while retaining any manually selected scenes.
+
+The default is a softened Happy expression with quiet attention movements and clearly readable nods, shakes, and curious tilts. Eyes lead attention shifts, keep their target through tilts and nods, and make occasional tiny corrections during longer holds. The upper lid closes over a stationary pupil with a smaller lift from the lower lid; both lids subtly follow vertical gaze. Blinks close quickly and reopen more slowly, and gestures settle back into the selected expression. Compatible actions overlap; a conflicting gesture replaces the previous action with a short transition. Speech retains ownership of its mouth shapes while eye and motion gestures continue.
+
+**Play demonstration** runs a repeatable sequence of notice → held eye contact → curious tilt → blink → nod, followed by listening, thinking, surprise, and delight. **Stop performance** stops audio, invalidates pending speech, cancels gestures and autonomous behavior, and settles the face. Preparing speech may finish in the background after Stop, but its result cannot restart playback.
+
+Whole-face motion is limited to 4% of the design canvas horizontally, 5% vertically, and ±12° of roll at maximum strength. Set its slider to zero for an anchored face. Alignment guides suppress all performance translation and rotation. These performance controls are session settings; calibration profiles remain unchanged.
+
+The existing Looking and Blinking toggles use the same performance scheduler. Candle Sputter remains an independent lighting action. Speech continues to use Kokoro and the existing spelling-based viseme timing; this milestone improves blending and coordination, not phoneme alignment.
+
 ### Safe output behavior
 
 - At startup, a remembered display is reused when it still exists. If it is missing—or no display has been saved yet—the output opens safely windowed on the primary display.
@@ -119,7 +131,7 @@ This smoke check does not validate native multi-display behavior or captured pix
 
 ## Deterministic visual captures
 
-Capture mode renders nine fixed expression poses, one reduced-intensity pose, minimum/maximum shell-thickness checks, four action-scene frames, and two camera-orbit views at 1280×720. It fixes the procedural candle clock, disables alignment guides, and exits automatically.
+Capture mode renders 38 fixed frames at 1280×720, including authored expressions, shell thickness, independent brows and mouth corners, pupil limits, blink phases, motion bounds, alignment guides, and speech with a wink. It fixes the procedural candle clock and exits automatically. Guides are enabled only for the dedicated motion-suppression check.
 
 Image capture requires a real GPU-backed, windowed Godot session. **Do not add `--headless` or use a dummy display driver**: a headless smoke check can load resources, but it cannot reliably read back the application's GPU viewport.
 
@@ -139,6 +151,39 @@ godot-mono --path src/PumpkinFace.Display -- \
 ```
 
 Comparison uses luma root-mean-square error with a tolerance of `0.035`. A successful run exits with code `0`; missing references, size changes, save failures, or visual differences above the threshold exit with code `2`; an unavailable GPU framebuffer exits with code `3` and an actionable message. Keep reference images tied to a known Godot version, renderer, and GPU because driver changes can produce small pixel differences.
+
+For temporal review, capture four six-second sequences at 10 samples per second:
+
+```sh
+godot-mono --path src/PumpkinFace.Display -- \
+  --capture-dir="$PWD/captures/performance-motion" --capture-performance-motion
+```
+
+The sequences cover look → tilt → nod, listening → thinking → speech animation, surprise → settle, and interruption during speech animation. These capture sequences exercise the speech pose layer without producing audio; use the operator's phrase control to check actual playback.
+
+For a closer look at the continuous-attention sequence, capture six seconds at 20 samples per second:
+
+```sh
+godot-mono --path src/PumpkinFace.Display -- \
+  --capture-dir="$PWD/captures/attention-motion" --capture-attention-motion
+```
+
+This sequence keeps the same gaze target while the pumpkin tilts, blinks, and nods, then settles. The fixed-frame set also includes looking up/down, a partial downward-looking blink, and closed lids on all three expressions.
+
+Use `--capture-gesture-motion` instead to compare curious tilt, nod, and shake side by side at the operator's default gesture intensity and motion amount (65% each). It produces three four-second sequences at 20 samples per second.
+
+## Future model control
+
+`AppRoot.CommandSink` is the internal, non-blocking command interface; `AppRoot.PerformanceStatus` exposes immutable snapshots. `GestureCatalog.All` describes supported gestures and their timing and intensity limits. A future model adapter can request gestures and observe completion without controlling individual frames:
+
+```csharp
+Guid requestId = Guid.NewGuid();
+bool accepted = app.CommandSink.TryPost(
+    new PlayGestureCommand(requestId, GestureId.CuriousTilt, Intensity: 0.65f));
+PerformanceSnapshot status = app.PerformanceStatus.Snapshot;
+```
+
+Requests use unique IDs; repeating an ID in the retained history does not retrigger it. Gaze accepts screen-relative X/Y in `[-1, 1]` and a hold of `0.1–30` seconds. Recent request outcomes are running, completed, cancelled, or rejected. Always check `TryPost`; a full queue rejects the command. The snapshot retains up to 256 recent outcomes. Gemma integration and network access are not included.
 
 ## Export an unnotarized macOS app
 

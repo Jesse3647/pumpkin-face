@@ -52,6 +52,10 @@ public readonly record struct FacePose
 
     public float Tremble { get; init; }
 
+    public float MotionX { get; init; }
+    public float MotionY { get; init; }
+    public float MotionRoll { get; init; }
+
     public float LightingIntensity { get; init; }
 
     public static FacePose Neutral { get; } = new()
@@ -86,6 +90,9 @@ public readonly record struct FacePose
             SpeechBlend = ClampUnit(SpeechBlend, fallback.SpeechBlend),
             LeftMouthCorner = ClampSigned(LeftMouthCorner, fallback.LeftMouthCorner),
             RightMouthCorner = ClampSigned(RightMouthCorner, fallback.RightMouthCorner),
+            MotionX = ClampSigned(MotionX, 0),
+            MotionY = ClampSigned(MotionY, 0),
+            MotionRoll = ClampSigned(MotionRoll, 0),
             Tremble = ClampUnit(Tremble, fallback.Tremble),
             LightingIntensity = Clamp(LightingIntensity, 0f, 2f, fallback.LightingIntensity),
         };
@@ -155,7 +162,10 @@ public readonly record struct FacePose
 
         if (channels.HasFlag(FacePoseChannels.Motion))
         {
-            result = result with { Tremble = Mix(start.Tremble, end.Tremble, t) };
+            result = result with { Tremble = Mix(start.Tremble, end.Tremble, t),
+                MotionX = Mix(start.MotionX, end.MotionX, t),
+                MotionY = Mix(start.MotionY, end.MotionY, t),
+                MotionRoll = Mix(start.MotionRoll, end.MotionRoll, t) };
         }
 
         if (channels.HasFlag(FacePoseChannels.Lighting))

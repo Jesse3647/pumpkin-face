@@ -16,6 +16,14 @@ public sealed partial class AppRoot : Node
 {
     private readonly BoundedAnimationCommandQueue _commands = new(64);
 
+    private readonly PerformanceController _performance = new();
+    private PerformanceCommandEndpoint? _endpoint;
+    private bool _autoplay;
+    private readonly SpeechPreparationGate _speechGate = new();
+    private long _speechGeneration;
+    public IAnimationCommandSink CommandSink => _endpoint ??= new(_commands, _performance);
+    public IPerformanceStatusSource PerformanceStatus => _performance;
+
     private CalibrationProfileStore? _profiles;
     private SceneDirector? _director;
     private SceneAnimationController? _animations;
@@ -52,7 +60,8 @@ public sealed partial class AppRoot : Node
         _stage = new FaceStage { Name = "FaceStage" };
         _animations = new SceneAnimationController { Name = "SceneAnimations" };
         _actionScenes = new ActionSceneController { ExternalSpeechCompletion = true };
-        _actionScenes.SetAutoplay(load.State.AutoplayEnabled);
+        _autoplay = load.State.AutoplayEnabled;
+        _performance.Handle(new SetBehaviorStateCommand(_autoplay ? BehaviorState.Idle : null));
         _projector = new ProjectorHost { Name = "ProjectorHost" };
         _operator = new OperatorPanel { Name = "OperatorPanel" };
         _speechPlayer = new AudioStreamPlayer
@@ -82,6 +91,9 @@ public sealed partial class AppRoot : Node
         _stage.ShowGuides = false;
         _operator.SetPreviewTexture(_stage.Texture);
         _operator.SetAutoplay(load.State.AutoplayEnabled);
+        _stage.EmotionAmount = .65f;
+        _operator.SetEmotionAmount(.65f);
+        _operator.SetPerformanceState(_performance.State, _performance.MotionAmount);
         _operator.SetSpeechVoices(KokoroSpeechSynthesizer.Voices, _speechVoice);
         _operator.SetGuides(false);
         _projector.SetTexture(_stage.Texture);
@@ -133,8 +145,8 @@ public sealed partial class AppRoot : Node
             return;
         }
 
-        CompleteSpeechSynthesisIfReady();
         DrainCommands();
+        CompleteSpeechSynthesisIfReady();
         _director.Update(TimeSpan.FromSeconds(Math.Max(0d, delta)));
         _animations.Synchronize(_director.Snapshot);
         bool talkingWasSelected = _actionScenes!.IsSelected(SceneId.Talking);
@@ -153,26 +165,14 @@ public sealed partial class AppRoot : Node
             _operator.SetSelectedScenes(_actionScenes.SelectedScenes);
             _operator.SetStatus("Phrase finished");
         }
+        _performance.Update(delta);
         ActionSceneFrame action = _actionScenes.Frame;
         FacePose expressionPose = _animations.CurrentPose;
-        FacePose displayedPose = _animations.CurrentPose with
-        {
-            LeftGazeX = action.Gaze.X,
-            LeftGazeY = action.Gaze.Y,
-            RightGazeX = action.Gaze.X,
-            RightGazeY = action.Gaze.Y,
-            LeftEyelidOpen = action.EyelidOpen,
-            RightEyelidOpen = action.EyelidOpen,
-            JawOpen = Mathf.Lerp(0f, action.JawOpen, action.SpeechBlend),
-            MouthWidth = Mathf.Lerp(expressionPose.MouthWidth, action.MouthWidth, action.SpeechBlend),
-            MouthRoundness = Mathf.Lerp(
-                expressionPose.MouthRoundness,
-                action.MouthRoundness,
-                action.SpeechBlend),
-            SpeechBlend = action.SpeechBlend,
-            LightingIntensity = _animations.CurrentPose.LightingIntensity * action.LightingMultiplier,
-        };
-        _stage.SetPose(displayedPose);
+        FacePose displayedPose = _performance.ComposePose(expressionPose);
+        displayedPose = SpeechPoseCompositor.Compose(displayedPose,
+            new SpeechMouthPose(action.JawOpen, action.MouthWidth, action.MouthRoundness, action.SpeechBlend));
+        displayedPose = displayedPose with { LightingIntensity = displayedPose.LightingIntensity * action.LightingMultiplier };
+        _stage.SetPose(displayedPose, expressionPose);
         UpdateSpeechAudio(action.SpeechActive);
 
         string? persistenceError = Interlocked.Exchange(ref _pendingPersistenceError, null);
@@ -192,6 +192,8 @@ public sealed partial class AppRoot : Node
                 activity += $"  •  {string.Join(" + ", activeScenes)}";
             }
 
+            if (_performance.State is { } state) activity += $"  •  {state}";
+            _operator.SetPerformanceState(_performance.State, _performance.MotionAmount);
             _operator.SetFps(Engine.GetFramesPerSecond(), activity);
         }
     }
@@ -228,7 +230,7 @@ public sealed partial class AppRoot : Node
                 ToggleScene(SceneId.CandleSputter);
                 break;
             case Key.A:
-                bool autoplay = !(_actionScenes?.AutoplayEnabled ?? true);
+                bool autoplay = !_autoplay;
                 Post(new SetAutoplayCommand(autoplay));
                 break;
             case Key.F:
@@ -289,6 +291,7 @@ public sealed partial class AppRoot : Node
             return;
         }
 
+        _operator.PerformanceCommandRequested += Post;
         _operator.EmotionRequested += emotion => Post(new PlayEmotionCommand(emotion));
         _operator.NextEmotionRequested += () => Post(new NextEmotionCommand());
         _operator.EmotionAmountChanged += amount => Post(new SetEmotionAmountCommand((float)amount));
@@ -370,11 +373,8 @@ public sealed partial class AppRoot : Node
                     continue;
                 }
                 _actionScenes!.SetSelected(scene.Scene, scene.Enabled);
-                if (scene.Enabled)
-                {
-                    _profiles!.SetAutoplayEnabled(false);
-                    _operator!.SetAutoplay(false);
-                }
+                if (scene.Enabled) SetAutoplay(false);
+                _performance.SetLegacyScene(scene.Scene, scene.Enabled);
                 _operator!.SetSelectedScenes(_actionScenes.SelectedScenes);
                 continue;
             }
@@ -387,23 +387,48 @@ public sealed partial class AppRoot : Node
 
             if (command is SetAutoplayCommand autoplay)
             {
-                if (autoplay.Enabled)
-                {
-                    _speechPlayer!.Stop();
-                }
-                _actionScenes!.SetAutoplay(autoplay.Enabled);
-                _profiles!.SetAutoplayEnabled(autoplay.Enabled);
-                _operator!.SetAutoplay(autoplay.Enabled);
-                _operator.SetSelectedScenes(_actionScenes.SelectedScenes);
+                SetAutoplay(autoplay.Enabled);
                 continue;
             }
 
             if (command is StopCommand)
             {
-                _actionScenes!.Stop();
-                _profiles!.SetAutoplayEnabled(false);
-                _operator!.SetAutoplay(false);
-                _operator.SetSelectedScenes([]);
+                CancelSpeech();
+                _actionScenes!.SetSelected(SceneId.Looking, false);
+                _actionScenes.SetSelected(SceneId.Blinking, false);
+                _actionScenes.SetSelected(SceneId.CandleSputter, false);
+                SetAutoplay(false);
+                _performance.Handle(command);
+                _operator!.SetSelectedScenes([]);
+                _operator.SetStatus("Stopped — resting on the selected expression");
+                continue;
+            }
+
+            if (_performance.Handle(command))
+            {
+                if (command is SetBehaviorStateCommand or PlayPerformanceDemoCommand)
+                {
+                    _autoplay = command is SetBehaviorStateCommand { State: BehaviorState.Idle };
+                    _profiles!.SetAutoplayEnabled(_autoplay);
+                    _operator!.SetAutoplay(_autoplay);
+                }
+                if (command is PlayPerformanceDemoCommand)
+                {
+                    CancelSpeech();
+                    _actionScenes!.Stop();
+                    _operator!.SetSelectedScenes([]);
+                    _director!.Handle(new PlayEmotionCommand(EmotionId.Happy));
+                    _stage!.EmotionAmount = .65f;
+                    _operator.SetEmotionAmount(.65f);
+                }
+                if (command is PerformanceRequestCommand request)
+                {
+                    PerformanceStatus? status = _performance.Snapshot.Requests.FirstOrDefault(item => item.RequestId == request.RequestId);
+                    if (status?.Outcome == PerformanceOutcome.Rejected)
+                        _operator!.SetStatus(status.Reason ?? "Action rejected", warning: true);
+                }
+                _operator!.SetPerformanceState(_performance.State, _performance.MotionAmount);
+                continue;
             }
 
             if (_director!.Handle(command))
@@ -415,10 +440,37 @@ public sealed partial class AppRoot : Node
 
     private void Post(AnimationCommand command)
     {
-        if (!_commands.TryPost(command))
+        if (!CommandSink.TryPost(command))
         {
             _operator?.SetStatus("The control queue is busy; try that action again", warning: true);
         }
+    }
+
+    private void SetAutoplay(bool enabled)
+    {
+        _autoplay = enabled;
+        _performance.Handle(new SetBehaviorStateCommand(enabled ? BehaviorState.Idle : null));
+        if (enabled)
+        {
+            _performance.SetLegacyScene(SceneId.Looking, false);
+            _performance.SetLegacyScene(SceneId.Blinking, false);
+            _actionScenes!.SetSelected(SceneId.Looking, false);
+            _actionScenes.SetSelected(SceneId.Blinking, false);
+            _actionScenes.SetSelected(SceneId.CandleSputter, false);
+        }
+        _profiles!.SetAutoplayEnabled(enabled);
+        _operator!.SetAutoplay(enabled);
+        _operator.SetSelectedScenes(_actionScenes!.SelectedScenes);
+        _operator.SetPerformanceState(_performance.State, _performance.MotionAmount);
+    }
+
+    private void CancelSpeech()
+    {
+        _speechGate.Cancel();
+        _speechPlayer?.Stop();
+        _speechWasActive = false;
+        _actionScenes?.BeginSpeechRelease();
+        _operator?.SetSpeechBusy(false);
     }
 
     private void ToggleScene(SceneId scene)
@@ -447,7 +499,7 @@ public sealed partial class AppRoot : Node
 
     private void BeginSpeechSynthesis(string phrase)
     {
-        if (_speechSynthesisTask is { IsCompleted: false })
+        if (_speechSynthesisTask is not null)
         {
             _operator?.SetStatus("A phrase is already being prepared", warning: true);
             return;
@@ -459,12 +511,11 @@ public sealed partial class AppRoot : Node
             return;
         }
 
-        _actionScenes!.SetAutoplay(false);
-        _actionScenes.SetSelected(SceneId.Talking, false);
+        _speechGeneration = _speechGate.Begin();
+        _actionScenes!.SetSelected(SceneId.Talking, false);
         _speechPlayer!.Stop();
-        _profiles!.SetAutoplayEnabled(false);
-        _operator!.SetAutoplay(false);
-        _operator.SetSelectedScenes(_actionScenes.SelectedScenes);
+        _speechWasActive = false;
+        _operator!.SetSelectedScenes(_actionScenes.SelectedScenes);
         _operator.SetSpeechBusy(true);
         _operator.SetStatus(
             "Preparing local neural speech… The first phrase downloads and loads the model.");
@@ -483,6 +534,7 @@ public sealed partial class AppRoot : Node
         try
         {
             SpeechSynthesisResult result = completed.GetAwaiter().GetResult();
+            if (!_speechGate.Accept(_speechGeneration)) return;
             AudioStreamWav stream = AudioStreamWav.LoadFromFile(result.WavePath);
             TimeSpan duration = TimeSpan.FromSeconds(stream.GetLength());
             IReadOnlyList<VisemeFrame> visemes = result.Visemes ??
@@ -496,6 +548,7 @@ public sealed partial class AppRoot : Node
         }
         catch (Exception exception)
         {
+            if (!_speechGate.Accept(_speechGeneration)) return;
             _operator.SetStatus($"Could not prepare speech: {exception.Message}", warning: true);
         }
     }

@@ -48,6 +48,7 @@ public sealed partial class FaceRig : Node2D
     private FlatFeature3D? _leftCatchlight;
     private FlatFeature3D? _rightCatchlight;
     private FacePose _pose = FacePose.Neutral;
+    private FacePose _expressionPose = FacePose.Neutral;
     private ProjectionCalibration _calibration = ProjectionCalibration.Default;
     private float _emotionAmount = 1f;
     private Vector2 _cameraOrbitDegrees;
@@ -106,43 +107,21 @@ public sealed partial class FaceRig : Node2D
         }
     }
 
-    public Vector2 PerformanceOffset
-    {
-        get
-        {
-            float activity = Mathf.Clamp((_pose.JawOpen - 0.16f) * 1.35f + _pose.Tremble * 0.7f, 0f, 1f);
-            float time = (float)_animationTime;
-            return TrembleOffset + new Vector2(
-                Mathf.Sin(time * 6.1f + 0.4f) * activity * 2.2f,
-                Mathf.Sin(time * 4.7f) * activity * 1.6f);
-        }
-    }
+    public Vector2 PerformanceOffset => new(
+        Mathf.Clamp(_pose.MotionX * DesignSize.X * PerformanceMotionLimits.HorizontalFraction + TrembleOffset.X,
+            -DesignSize.X * PerformanceMotionLimits.HorizontalFraction, DesignSize.X * PerformanceMotionLimits.HorizontalFraction),
+        Mathf.Clamp(_pose.MotionY * DesignSize.Y * PerformanceMotionLimits.VerticalFraction + TrembleOffset.Y,
+            -DesignSize.Y * PerformanceMotionLimits.VerticalFraction, DesignSize.Y * PerformanceMotionLimits.VerticalFraction));
 
-    public float PerformanceRotationRadians
-    {
-        get
-        {
-            float cornerSkew = _pose.RightMouthCorner - _pose.LeftMouthCorner;
-            float trembleRock = Mathf.Sin((float)_animationTime * 16.3f) * _pose.Tremble;
-            return cornerSkew * 0.0075f + trembleRock * 0.0055f;
-        }
-    }
-
-    public Vector2 PerformanceScale
-    {
-        get
-        {
-            float activity = Mathf.Clamp((_pose.JawOpen - 0.18f) * 1.15f, 0f, 1f);
-            float pulse = Mathf.Sin((float)_animationTime * 4.7f + 0.8f) * activity;
-            return new Vector2(1f + pulse * 0.0035f, 1f - pulse * 0.005f);
-        }
-    }
+    public float PerformanceRotationRadians => Mathf.DegToRad(_pose.MotionRoll * PerformanceMotionLimits.RollDegrees);
+    public Vector2 PerformanceScale => Vector2.One;
 
     public override void _Ready() => EnsureInitialized();
 
-    public void SetPose(FacePose pose)
+    public void SetPose(FacePose pose, FacePose? expression = null)
     {
         _pose = pose.Clamp();
+        _expressionPose = (expression ?? pose).Clamp();
         EnsureInitialized();
         RebuildExpressionGeometry();
         UpdateLightingAndTime();
@@ -480,7 +459,7 @@ public sealed partial class FaceRig : Node2D
             return;
         }
 
-        ReferenceFaceShape shape = ResolveReferenceShape(_pose);
+        ReferenceFaceShape shape = ResolveReferenceShape(_expressionPose);
         Vector2[] leftEye = ApplyEyeCalibration(shape.LeftEye);
         Vector2[] rightEye = ApplyEyeCalibration(shape.RightEye);
         Vector2[] nose = shape.Nose;
@@ -499,10 +478,10 @@ public sealed partial class FaceRig : Node2D
 
         SetReferencePupil(_leftPupil!, _leftCatchlight!, shape.LeftPupil,
             shape.LeftCatchlight, shape.PupilRadius, shape.CatchlightRadius,
-            new Vector2(_pose.LeftGazeX, _pose.LeftGazeY), _pose.LeftEyelidOpen);
+            new Vector2(_pose.LeftGazeX, _pose.LeftGazeY), _pose.LeftEyelidOpen, leftEye);
         SetReferencePupil(_rightPupil!, _rightCatchlight!, shape.RightPupil,
             shape.RightCatchlight, shape.PupilRadius, shape.CatchlightRadius,
-            new Vector2(_pose.RightGazeX, _pose.RightGazeY), _pose.RightEyelidOpen);
+            new Vector2(_pose.RightGazeX, _pose.RightGazeY), _pose.RightEyelidOpen, rightEye);
     }
 
     private ReferenceFaceShape ResolveReferenceShape(FacePose pose)
@@ -553,20 +532,29 @@ public sealed partial class FaceRig : Node2D
 
     private ReferenceFaceShape ApplyEmotionAmount(ReferenceFaceShape shape)
     {
+        // Deform the authored expression locally; gesture asymmetry must not select a different face.
+        shape = shape with
+        {
+            LeftEye = DeformBrow(shape.LeftEye, _pose.LeftBrowTension - _expressionPose.LeftBrowTension),
+            RightEye = DeformBrow(shape.RightEye, _pose.RightBrowTension - _expressionPose.RightBrowTension),
+            Mouth = DeformMouthCorners(shape.Mouth,
+                _pose.LeftMouthCorner - _expressionPose.LeftMouthCorner,
+                _pose.RightMouthCorner - _expressionPose.RightMouthCorner),
+        };
         float eyeX = Mathf.Lerp(0.92f, 1f, _emotionAmount);
         float eyeY = Mathf.Lerp(0.72f, 1f, _emotionAmount);
         float mouthX = Mathf.Lerp(0.90f, 1f, _emotionAmount);
         float mouthY = Mathf.Lerp(0.52f, 1f, _emotionAmount) * (1f + _pose.JawOpen * 0.86f);
-        Vector2 leftEyeScale = new(
-            eyeX,
-            eyeY * Mathf.Lerp(0.055f, 1f, _pose.LeftEyelidOpen));
-        Vector2 rightEyeScale = new(
-            eyeX,
-            eyeY * Mathf.Lerp(0.055f, 1f, _pose.RightEyelidOpen));
-        Vector2 leftEyeCenter = CenterOf(shape.LeftEye);
-        Vector2 rightEyeCenter = CenterOf(shape.RightEye);
+        Vector2 eyeScale = new(eyeX, eyeY);
+        EyeGeometry leftEye = EyeContourDeformer.Build(shape.LeftEye, shape.LeftPupil, shape.LeftCatchlight,
+            eyeScale, _pose.LeftEyelidOpen, _pose.LeftGazeY);
+        EyeGeometry rightEye = EyeContourDeformer.Build(shape.RightEye, shape.RightPupil, shape.RightCatchlight,
+            eyeScale, _pose.RightEyelidOpen, _pose.RightGazeY);
         Vector2 mouthCenter = CenterOf(shape.Mouth);
-        Vector2[] mouth = ScaleContour(shape.Mouth, mouthCenter, new Vector2(mouthX, mouthY));
+        float widthDelta = _pose.MouthWidth - _expressionPose.MouthWidth;
+        Vector2[] mouth = ScaleContour(shape.Mouth, mouthCenter, new Vector2(mouthX * (1 + widthDelta * .65f), mouthY));
+        mouth = MouthContourDeformer.Round(mouth, mouthCenter,
+            Mathf.Max(0, _pose.MouthRoundness - _expressionPose.MouthRoundness), shape.Nose.Max(p => p.Y) + 24f);
         if (_pose.SpeechBlend > 0f)
         {
             float speechWidth = Mathf.Lerp(0.42f, 1.12f, _pose.MouthWidth);
@@ -576,22 +564,41 @@ public sealed partial class FaceRig : Node2D
                 mouthCenter,
                 new Vector2(speechWidth, speechHeight));
             float rounding = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.34f, 0.92f, _pose.MouthRoundness));
-            speechMouth = RoundContourTowardEllipse(speechMouth, mouthCenter, rounding);
+            speechMouth = MouthContourDeformer.Round(speechMouth, mouthCenter, rounding, shape.Nose.Max(p => p.Y) + 24f);
             mouth = BlendContours(mouth, speechMouth, Smooth(_pose.SpeechBlend));
         }
 
         return shape with
         {
-            LeftEye = ScaleContour(shape.LeftEye, leftEyeCenter, leftEyeScale),
-            RightEye = ScaleContour(shape.RightEye, rightEyeCenter, rightEyeScale),
+            LeftEye = leftEye.Aperture,
+            RightEye = rightEye.Aperture,
             Mouth = mouth,
-            LeftPupil = ScalePoint(shape.LeftPupil, leftEyeCenter, leftEyeScale),
-            RightPupil = ScalePoint(shape.RightPupil, rightEyeCenter, rightEyeScale),
-            LeftCatchlight = ScalePoint(shape.LeftCatchlight, leftEyeCenter, leftEyeScale),
-            RightCatchlight = ScalePoint(shape.RightCatchlight, rightEyeCenter, rightEyeScale),
+            LeftPupil = leftEye.Pupil,
+            RightPupil = rightEye.Pupil,
+            LeftCatchlight = leftEye.Catchlight,
+            RightCatchlight = rightEye.Catchlight,
             PupilRadius = shape.PupilRadius * Mathf.Lerp(0.84f, 1f, _emotionAmount),
             CatchlightRadius = shape.CatchlightRadius * Mathf.Lerp(0.90f, 1f, _emotionAmount),
         };
+    }
+
+    private static Vector2[] DeformBrow(Vector2[] contour, float amount)
+    {
+        Vector2 center = CenterOf(contour);
+        float width = Mathf.Max(1, contour.Max(p => Mathf.Abs(p.X - center.X)));
+        return contour.Select(p => p + new Vector2(0,
+            amount * 32f * Mathf.Clamp((center.Y - p.Y) / 90f + .5f, 0, 1) *
+            (1 - .3f * Mathf.Abs(p.X - center.X) / width))).ToArray();
+    }
+
+    private static Vector2[] DeformMouthCorners(Vector2[] contour, float left, float right)
+    {
+        float min = contour.Min(p => p.X), max = contour.Max(p => p.X);
+        return contour.Select(p =>
+        {
+            float u = (p.X - min) / Mathf.Max(1, max - min);
+            return p + new Vector2(0, -Mathf.Lerp(left, right, u) * 65f * Mathf.Pow(Mathf.Abs(u * 2 - 1), 1.5f));
+        }).ToArray();
     }
 
     private static Vector2[] ScaleContour(Vector2[] points, Vector2 center, Vector2 scale) =>
@@ -601,31 +608,6 @@ public sealed partial class FaceRig : Node2D
         center + (point - center) * scale;
 
     private static float Smooth(float amount) => amount * amount * (3f - 2f * amount);
-
-    private static Vector2[] RoundContourTowardEllipse(
-        Vector2[] points,
-        Vector2 center,
-        float amount)
-    {
-        if (amount <= 0f)
-        {
-            return points;
-        }
-
-        float radiusX = Mathf.Max(1f, points.Max(point => Mathf.Abs(point.X - center.X)));
-        float radiusY = Mathf.Max(1f, points.Max(point => Mathf.Abs(point.Y - center.Y)));
-        float roundedRadiusX = radiusX * Mathf.Lerp(1f, 0.55f, amount);
-        float roundedRadiusY = radiusY * Mathf.Lerp(1f, 1.12f, amount);
-        return points.Select(point =>
-        {
-            Vector2 delta = point - center;
-            float angle = Mathf.Atan2(delta.Y / radiusY, delta.X / radiusX);
-            Vector2 ellipse = center + new Vector2(
-                Mathf.Cos(angle) * roundedRadiusX,
-                Mathf.Sin(angle) * roundedRadiusY);
-            return point.Lerp(ellipse, amount);
-        }).ToArray();
-    }
 
     private static ReferenceFaceShape BlendReferenceShapes(
         ReferenceFaceShape from,
@@ -676,22 +658,27 @@ public sealed partial class FaceRig : Node2D
         float radius,
         float catchlightRadius,
         Vector2 gaze,
-        float eyelidOpen)
+        float eyelidOpen,
+        Vector2[] aperture)
     {
         center.X *= _calibration.EyeSpacing;
         catchlightCenter.X *= _calibration.EyeSpacing;
         Vector2 gazeOffset = new(gaze.X * 44f, gaze.Y * 30f);
         center += gazeOffset;
         catchlightCenter += gazeOffset;
-        bool visible = eyelidOpen > 0.16f;
-        pupil.Visible = visible;
-        catchlight.Visible = visible;
-        if (!visible)
-        {
-            return;
-        }
-        pupil.SetPolygon(BuildCircle(center, radius, 28));
-        catchlight.SetPolygon(BuildCircle(catchlightCenter, catchlightRadius, 18), 0.19f);
+        float referencePupil = Mathf.Max(.05f, _expressionPose.PupilSize);
+        radius *= Mathf.Clamp(_pose.PupilSize / referencePupil, .3f, 1.7f);
+        SetClippedPupil(pupil, BuildCircle(center, radius, 28), aperture, 0);
+        SetClippedPupil(catchlight, BuildCircle(catchlightCenter, catchlightRadius, 18), aperture, .19f);
+        if (eyelidOpen < .035f) { pupil.Visible = false; catchlight.Visible = false; }
+    }
+
+    private static void SetClippedPupil(FlatFeature3D feature, Vector2[] polygon, Vector2[] aperture, float depth)
+    {
+        var intersections = Geometry2D.IntersectPolygons(polygon, aperture);
+        Vector2[]? clipped = intersections.OrderByDescending(p => p.Length).FirstOrDefault();
+        feature.Visible = clipped is { Length: >= 3 };
+        if (feature.Visible) feature.SetPolygon(clipped!, depth);
     }
 
     private static Vector2[] BuildCircle(Vector2 center, float radius, int segments)

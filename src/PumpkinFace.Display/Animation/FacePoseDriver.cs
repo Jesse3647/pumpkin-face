@@ -26,6 +26,12 @@ public sealed partial class FacePoseDriver : Node
 	[Export] public float Tremble { get; set; }
 	[Export] public float LightingIntensity { get; set; } = FacePose.Neutral.LightingIntensity;
 
+	[Export] public float MotionX { get; set; }
+
+	[Export] public float MotionY { get; set; }
+
+	[Export] public float MotionRoll { get; set; }
+
 	public void ApplyPose(FacePose pose)
 	{
 		FacePose value = pose.Clamp();
@@ -43,6 +49,9 @@ public sealed partial class FacePoseDriver : Node
 		MouthRoundness = value.MouthRoundness;
 		LeftMouthCorner = value.LeftMouthCorner;
 		RightMouthCorner = value.RightMouthCorner;
+		MotionX = value.MotionX;
+		MotionY = value.MotionY;
+		MotionRoll = value.MotionRoll;
 		Tremble = value.Tremble;
 		LightingIntensity = value.LightingIntensity;
 	}
@@ -63,6 +72,9 @@ public sealed partial class FacePoseDriver : Node
 		MouthRoundness = MouthRoundness,
 		LeftMouthCorner = LeftMouthCorner,
 		RightMouthCorner = RightMouthCorner,
+		MotionX = MotionX,
+		MotionY = MotionY,
+		MotionRoll = MotionRoll,
 		Tremble = Tremble,
 		LightingIntensity = LightingIntensity,
 	}.Clamp();
