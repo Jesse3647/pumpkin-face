@@ -33,6 +33,7 @@ public sealed partial class AppRoot : Node
     private ProjectorHost? _projector;
     private OperatorPanel? _operator;
     private AudioStreamPlayer? _speechPlayer;
+    private CannedPerformancePlayer? _cannedPerformance;
     private Task<SpeechSynthesisResult>? _speechSynthesisTask;
     private KokoroSpeechSynthesizer? _kokoroSpeech;
     private string _speechVoice = "kokoro:af_heart";
@@ -46,6 +47,12 @@ public sealed partial class AppRoot : Node
         ProcessMode = ProcessModeEnum.Always;
         SetProcess(true);
         SetProcessUnhandledKeyInput(true);
+
+        if (OS.GetCmdlineUserArgs().Contains("--verify-playful-scare"))
+        {
+            AddChild(new PerformancePlaybackCheck());
+            return;
+        }
 
         if (TryGetCommandLineValue("--capture-dir=", out string? captureDirectory))
         {
@@ -79,6 +86,8 @@ public sealed partial class AppRoot : Node
         AddChild(_projector);
         AddChild(_operator);
         AddChild(_speechPlayer);
+        _cannedPerformance = new CannedPerformancePlayer { Name = "PlayfulScare" };
+        AddChild(_cannedPerformance);
 
         _director = new SceneDirector(
             seed: 0x504B4E,
@@ -173,8 +182,10 @@ public sealed partial class AppRoot : Node
         ActionSceneFrame action = _actionScenes.Frame;
         FacePose expressionPose = _animations.CurrentPose;
         FacePose displayedPose = _performance.ComposePose(expressionPose);
-        displayedPose = SpeechPoseCompositor.Compose(displayedPose,
-            new SpeechMouthPose(action.JawOpen, action.MouthWidth, action.MouthRoundness, action.SpeechBlend));
+        displayedPose = _cannedPerformance!.Sample(delta, displayedPose, _performance.MotionAmount);
+        if (action.SpeechBlend > 0)
+            displayedPose = SpeechPoseCompositor.Compose(displayedPose,
+                new SpeechMouthPose(action.JawOpen, action.MouthWidth, action.MouthRoundness, action.SpeechBlend));
         displayedPose = displayedPose with { LightingIntensity = displayedPose.LightingIntensity * action.LightingMultiplier };
         _stage.SetPose(displayedPose, expressionPose);
         UpdateSpeechAudio(action.SpeechActive);
@@ -196,6 +207,9 @@ public sealed partial class AppRoot : Node
                 activity += $"  •  {string.Join(" + ", activeScenes)}";
             }
 
+            if (_cannedPerformance!.Playing) activity += $"  •  {_cannedPerformance.BeatLabel}";
+            _operator.SetSwitchboardState(_cannedPerformance.Playing ? _cannedPerformance.Current.Id : null,
+                _cannedPerformance.Current.Title, _cannedPerformance.Position, _cannedPerformance.Current.Duration);
             if (_performance.State is { } state) activity += $"  •  {state}";
             activity = $"{CurrentCharacter.Name}  •  {activity}";
             _operator.SetPerformanceState(_performance.State, _performance.MotionAmount);
@@ -297,6 +311,8 @@ public sealed partial class AppRoot : Node
         }
 
         _operator.PerformanceCommandRequested += Post;
+        _operator.PerformanceSoundChanged += enabled => _cannedPerformance!.SetSoundEnabled(enabled);
+        _operator.SongTempoChanged += tempo => _cannedPerformance!.SongTempo = tempo;
         _operator.EmotionRequested += emotion => Post(new PlayEmotionCommand(emotion));
         _operator.NextEmotionRequested += () => Post(new NextEmotionCommand());
         _operator.EmotionAmountChanged += amount => Post(new SetEmotionAmountCommand((float)amount));
@@ -357,6 +373,39 @@ public sealed partial class AppRoot : Node
     {
         while (_commands.TryDequeue(out AnimationCommand? command))
         {
+            if (command is StopCommand or SpeakPhraseCommand or
+                SetBehaviorStateCommand or SetAutoplayCommand or PlayPerformanceDemoCommand or
+                PlayGestureCommand or SetGazeTargetCommand or PlayEmotionCommand or NextEmotionCommand ||
+                command is SelectCharacterCommand selected && CharacterCatalog.IsKnown(selected.CharacterId) &&
+                selected.CharacterId != CurrentCharacter.Id)
+                _cannedPerformance?.Stop();
+
+            if (command is PlaySongFileCommand songFile)
+            {
+                if (_cannedPerformance!.LoadSong(songFile.Path, out string error))
+                {
+                    _operator!.SetSongTitle(_cannedPerformance.SongTitle!);
+                    StartCannedPerformance(PerformanceLibrary.SongId);
+                }
+                else _operator!.SetStatus(error, warning: true);
+                continue;
+            }
+
+            if (command is PlayCannedPerformanceCommand canned)
+            {
+                if (PerformanceLibrary.Find(canned.PerformanceId) is not null ||
+                    canned.PerformanceId == PerformanceLibrary.SongId && _cannedPerformance!.SongTitle is not null)
+                    StartCannedPerformance(canned.PerformanceId);
+                else _operator!.SetStatus("Choose a song first.", warning: true);
+                continue;
+            }
+
+            if (command is PlayPerformanceDemoCommand && CurrentCharacter.Id == CharacterCatalog.DefaultId)
+            {
+                StartCannedPerformance("little-scare");
+                continue;
+            }
+
             if (command is ApplyCalibrationCommand calibration)
             {
                 ApplyCalibration(calibration.Calibration);
@@ -378,7 +427,7 @@ public sealed partial class AppRoot : Node
                     continue;
                 }
                 _actionScenes!.SetSelected(scene.Scene, scene.Enabled);
-                if (scene.Enabled) SetAutoplay(false);
+                if (scene.Enabled) { _cannedPerformance?.Stop(); SetAutoplay(false); }
                 _performance.SetLegacyScene(scene.Scene, scene.Enabled);
                 _operator!.SetSelectedScenes(_actionScenes.SelectedScenes);
                 continue;
@@ -470,6 +519,22 @@ public sealed partial class AppRoot : Node
         {
             _operator?.SetStatus("The control queue is busy; try that action again", warning: true);
         }
+    }
+
+    private void StartCannedPerformance(string id)
+    {
+        CancelSpeech();
+        _actionScenes!.Stop();
+        SetAutoplay(false);
+        _performance.Handle(new StopCommand());
+        _director!.Handle(new PlayEmotionCommand(EmotionId.Happy));
+        _stage!.EmotionAmount = CurrentCharacter.DefaultEmotionAmount;
+        _operator!.SetEmotionAmount(CurrentCharacter.DefaultEmotionAmount);
+        _operator.SetSelectedScenes([]);
+        bool audioAvailable = _cannedPerformance!.Play(id);
+        _operator.SetSwitchboardState(id, _cannedPerformance.Current.Title, 0, _cannedPerformance.Current.Duration);
+        _operator.SetStatus(audioAvailable ? $"Playing {_cannedPerformance.Current.Title}" :
+            "Playing silently — the sound file could not be loaded", warning: !audioAvailable);
     }
 
     private void SetAutoplay(bool enabled)

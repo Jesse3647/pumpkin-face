@@ -1,6 +1,8 @@
 shader_type spatial;
 render_mode unshaded, blend_add, depth_draw_never, cull_disabled;
 
+#include "res://Shaders/candle_light.gdshaderinc"
+
 uniform float animation_time = 0.0;
 uniform float light_intensity : hint_range(0.0, 2.0) = 1.0;
 uniform float brightness : hint_range(0.0, 2.0) = 1.0;
@@ -20,16 +22,16 @@ void vertex() {
 void fragment() {
 	// Ring UV.y runs from zero at the enlarged outer contour to one at the
 	// exact cut edge. Fade outward so projected light lands only around holes.
-	float fade = smoothstep(0.0, 0.92, UV.y);
+	float fade = pow(smoothstep(0.0, 1.0, UV.y), 2.4);
 	float relative_height = (local_position.y - feature_center_y) / max(feature_half_height, 0.05);
 	float upper_edge = smoothstep(-0.52, 0.68, relative_height);
 	float source_distance = length(candle_position - local_position);
 	float source_falloff = 1.0 / (1.0 + source_distance * source_distance * 0.12);
 	float directional_spill = mix(0.20, 1.0, upper_edge) *
 		(0.72 + source_falloff * 0.72) * outward_strength;
-	float flutter = 0.96 + sin(animation_time * 5.7) * 0.025 + sin(animation_time * 9.9 + 1.3) * 0.012;
+	float flutter = candle_flutter(animation_time);
 	vec3 color = vec3(1.0, 0.36, 0.035) * max(0.0, light_intensity * brightness * candle_brightness) * flutter;
 	ALBEDO = color;
 	EMISSION = color * 1.35;
-	ALPHA = fade * halo_strength * directional_spill;
+	ALPHA = fade * halo_strength * directional_spill * (0.65 + candle_noise(local_position.x * 12.0) * 0.35);
 }

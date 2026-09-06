@@ -57,6 +57,8 @@ public readonly record struct FacePose
     public float MotionRoll { get; init; }
 
     public float LightingIntensity { get; init; }
+    public float SaberGlow { get; init; }
+    public float SaberSweep { get; init; }
 
     public static FacePose Neutral { get; } = new()
     {
@@ -95,6 +97,8 @@ public readonly record struct FacePose
             MotionRoll = ClampSigned(MotionRoll, 0),
             Tremble = ClampUnit(Tremble, fallback.Tremble),
             LightingIntensity = Clamp(LightingIntensity, 0f, 2f, fallback.LightingIntensity),
+            SaberGlow = ClampUnit(SaberGlow, 0),
+            SaberSweep = ClampSigned(SaberSweep, 0),
         };
     }
 
@@ -173,6 +177,8 @@ public readonly record struct FacePose
             result = result with
             {
                 LightingIntensity = Mix(start.LightingIntensity, end.LightingIntensity, t),
+                SaberGlow = Mix(start.SaberGlow, end.SaberGlow, t),
+                SaberSweep = Mix(start.SaberSweep, end.SaberSweep, t),
             };
         }
 

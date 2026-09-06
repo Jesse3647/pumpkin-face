@@ -39,6 +39,8 @@ public sealed class FacePoseTests
             RightMouthCorner = 5f,
             Tremble = 9f,
             LightingIntensity = 9f,
+            SaberGlow = float.NaN,
+            SaberSweep = 9f,
         }.Clamp();
 
         Assert.Equal(-1f, pose.LeftGazeX);
@@ -58,6 +60,8 @@ public sealed class FacePoseTests
         Assert.Equal(1f, pose.RightMouthCorner);
         Assert.Equal(1f, pose.Tremble);
         Assert.Equal(2f, pose.LightingIntensity);
+        Assert.Equal(0f, pose.SaberGlow);
+        Assert.Equal(1f, pose.SaberSweep);
     }
 
     [Fact]
@@ -76,6 +80,8 @@ public sealed class FacePoseTests
             RightGazeY = 1f,
             JawOpen = 1f,
             LightingIntensity = 2f,
+            SaberGlow = 1f,
+            SaberSweep = -1f,
         };
 
         var halfway = FacePose.Lerp(start, end, 0.5f);
@@ -84,6 +90,8 @@ public sealed class FacePoseTests
         Assert.Equal(0f, halfway.RightGazeY);
         Assert.Equal(0.5f, halfway.JawOpen);
         Assert.Equal(1f, halfway.LightingIntensity);
+        Assert.Equal(.5f, halfway.SaberGlow);
+        Assert.Equal(-.5f, halfway.SaberSweep);
         Assert.Equal(start, FacePose.Lerp(start, end, -1f));
         Assert.Equal(end, FacePose.Lerp(start, end, 2f));
         Assert.Equal(start, FacePose.Lerp(start, end, float.NaN));

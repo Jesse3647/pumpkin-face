@@ -1,5 +1,7 @@
 shader_type spatial;
 render_mode cull_back, diffuse_burley, specular_schlick_ggx;
+#include "res://Shaders/candle_light.gdshaderinc"
+#include "res://Shaders/lightsaber_light.gdshaderinc"
 
 uniform float animation_time = 0.0;
 uniform float light_intensity : hint_range(0.0, 2.0) = 1.0;
@@ -17,6 +19,7 @@ uniform int nose_count = 0;
 uniform int mouth_count = 0;
 
 varying vec3 local_position;
+varying vec3 local_normal;
 
 float hash21(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -26,6 +29,7 @@ float hash21(vec2 p) {
 
 void vertex() {
 	local_position = VERTEX;
+	local_normal = NORMAL;
 }
 
 void fragment() {
@@ -84,11 +88,14 @@ void fragment() {
 		if (inside) { discard; }
 	}
 
-	// Black is transparent to a real projector surface while this opaque mesh
-	// still writes depth. It therefore hides the candle from invalid viewing
-	// angles without projecting a synthetic pumpkin body.
+	// The shell normally projects black while still occluding the candle.
+	// An active saber reveals only the reflected red light on the curved skin.
 	ALBEDO = vec3(0.0);
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.0;
-	EMISSION = vec3(0.0);
+	// Feather before the silhouette so projection remains a local wash of light.
+	float front = smoothstep(0.8, 2.9, local_position.z);
+	float face_area = exp(-pow(length(local_position.xy / vec2(3.7, 2.8)), 4.0));
+	float skin = 0.84 + 0.10 * hash21(local_position.xy * 18.0);
+	EMISSION = candle_output(saber_irradiance(local_position, local_normal) * brightness * front * face_area * skin, gamma);
 }

@@ -20,6 +20,10 @@ public sealed record SetAutoplayCommand(bool Enabled) : AnimationCommand;
 
 public sealed record StopCommand : AnimationCommand;
 
+public sealed record PlayCannedPerformanceCommand(string PerformanceId) : AnimationCommand;
+
+public sealed record PlaySongFileCommand(string Path) : AnimationCommand;
+
 public sealed record ApplyCalibrationCommand : AnimationCommand
 {
     public ApplyCalibrationCommand(ProjectionCalibration calibration)

@@ -25,6 +25,7 @@ public sealed partial class FaceRig : Node2D
 
     private readonly List<ShaderMaterial> _animatedMaterials = [];
     private readonly List<ShaderMaterial> _candleAwareMaterials = [];
+    private readonly List<ShaderMaterial> _saberAwareMaterials = [];
     private SubViewport? _modelViewport;
     private Node3D? _modelRoot;
     private Camera3D? _camera;
@@ -32,6 +33,10 @@ public sealed partial class FaceRig : Node2D
     private MeshInstance3D? _pumpkinShell;
     private MeshInstance3D? _innerWall;
     private OmniLight3D? _candleLight;
+    private OmniLight3D? _saberLight;
+    private readonly Vector2[] _cavityApertures = new Vector2[384];
+    private readonly int[] _cavityCounts = new int[4];
+    private readonly Vector4[] _cavityBounds = new Vector4[4];
     private Node3D? _flameRoot;
     private ShaderMaterial? _shellMaterial;
     private ShaderMaterial? _interiorMaterial;
@@ -213,6 +218,12 @@ public sealed partial class FaceRig : Node2D
         };
         _modelRoot.AddChild(_candleLight);
 
+        _saberLight = new OmniLight3D {
+            Name = "ReflectedSaberLight", LightColor = new Color(1f, .006f, .018f),
+            LightEnergy = 0, OmniRange = 12f, ShadowEnabled = false,
+        };
+        _modelRoot.AddChild(_saberLight);
+
         CreateMaterials();
         CreatePumpkinShell();
         CreateCandle();
@@ -263,6 +274,7 @@ public sealed partial class FaceRig : Node2D
         _wallMaterial = new ShaderMaterial { Shader = cutWallShader };
         _animatedMaterials.Add(_wallMaterial);
         _candleAwareMaterials.Add(_wallMaterial);
+        _saberAwareMaterials.AddRange([_shellMaterial, _interiorMaterial, _wallMaterial]);
         _pupilMaterial = new StandardMaterial3D
         {
             AlbedoColor = new Color(0.002f, 0.001f, 0.0004f),
@@ -270,11 +282,11 @@ public sealed partial class FaceRig : Node2D
         };
         _catchlightMaterial = new StandardMaterial3D
         {
-            AlbedoColor = Colors.White,
+            AlbedoColor = new Color(1f, .72f, .32f),
             Roughness = 0.35f,
             EmissionEnabled = true,
-            Emission = Colors.White,
-            EmissionEnergyMultiplier = 2.4f,
+            Emission = new Color(1f, .58f, .16f),
+            EmissionEnergyMultiplier = 1.25f,
         };
 
         ShaderMaterial NewHalo(float strength, float outwardStrength = 1f)
@@ -289,21 +301,21 @@ public sealed partial class FaceRig : Node2D
 
         _leftEye = NewCarvedFeature(
             "LeftEye",
-            NewHalo(0.11f),
+            NewHalo(0.045f),
             charScale: 1.022f,
             haloScale: 1.13f);
         _rightEye = NewCarvedFeature(
             "RightEye",
-            NewHalo(0.11f),
+            NewHalo(0.045f),
             charScale: 1.022f,
             haloScale: 1.13f);
         _nose = NewCarvedFeature(
             "Nose",
-            NewHalo(0.075f),
+            NewHalo(0.035f),
             haloScale: 1.18f);
         _mouth = NewCarvedFeature(
             "Mouth",
-            NewHalo(0.085f, 0.75f),
+            NewHalo(0.055f, 0.75f),
             charScale: 1.016f,
             haloScale: 1.09f);
     }
@@ -684,7 +696,7 @@ public sealed partial class FaceRig : Node2D
         float referencePupil = Mathf.Max(.05f, _expressionPose.PupilSize);
         radius *= Mathf.Clamp(_pose.PupilSize / referencePupil, .3f, 1.7f);
         SetClippedPupil(pupil, BuildCircle(center, radius, 28), aperture, 0);
-        SetClippedPupil(catchlight, BuildCircle(catchlightCenter, catchlightRadius, 18), aperture, .19f);
+        SetClippedPupil(catchlight, BuildCircle(catchlightCenter, catchlightRadius * .65f, 18), aperture, .19f);
         if (eyelidOpen < .035f) { pupil.Visible = false; catchlight.Visible = false; }
     }
 
@@ -990,8 +1002,27 @@ public sealed partial class FaceRig : Node2D
         }
 
         float time = (float)_animationTime;
+        float slowFlutter = CandleNoise(time * 2.1f) * 2f - 1f;
+        float quickFlutter = CandleNoise(time * 8.7f) * 2f - 1f;
+        float flutter = .88f + (slowFlutter + 1f) * .07f + (quickFlutter + 1f) * .0225f;
+        Vector3 saberPosition = new(-4.4f + _pose.SaberSweep * 1.5f, 0f, 5f);
+        foreach (ShaderMaterial material in _saberAwareMaterials)
+        {
+            material.SetShaderParameter("saber_strength", _pose.SaberGlow);
+            material.SetShaderParameter("saber_position", saberPosition);
+        }
+        if (_saberLight is not null)
+        {
+            _saberLight.Position = saberPosition;
+            _saberLight.LightEnergy = _pose.SaberGlow * 6f * _calibration.Brightness;
+        }
+        if (_catchlightMaterial is not null)
+        {
+            _catchlightMaterial.Emission = new Color(1f, .58f, .16f).Lerp(new Color(1f, .035f, .05f), _pose.SaberGlow);
+        }
         foreach (ShaderMaterial material in _animatedMaterials)
         {
+            material.SetShaderParameter("candle_flicker", flutter);
             material.SetShaderParameter("animation_time", time);
             material.SetShaderParameter("light_intensity", _pose.LightingIntensity);
             material.SetShaderParameter("brightness", _calibration.Brightness);
@@ -1001,9 +1032,6 @@ public sealed partial class FaceRig : Node2D
 
         if (_candleLight is not null)
         {
-            float slowFlutter = Mathf.Sin(time * 5.7f);
-            float quickFlutter = Mathf.Sin(time * 11.9f + 1.3f);
-            float flutter = 0.93f + slowFlutter * 0.055f + quickFlutter * 0.027f;
             float emotionalLight = Mathf.Lerp(1f, _pose.LightingIntensity, _emotionAmount);
             Vector3 flamePosition = new(
                 Mathf.Sin(time * 1.7f) * 0.018f + quickFlutter * 0.009f,
@@ -1027,6 +1055,14 @@ public sealed partial class FaceRig : Node2D
                 material.SetShaderParameter("candle_position", _candleLight.Position);
             }
         }
+    }
+
+    private static float CandleNoise(float time)
+    {
+        float i = Mathf.Floor(time), f = time - i;
+        f = f * f * (3f - 2f * f);
+        float Hash(float n) { float x = Mathf.Sin(n * 127.1f + 7.3f) * 43758.5453f; return x - Mathf.Floor(x); }
+        return Mathf.Lerp(Hash(i), Hash(i + 1f), f);
     }
 
     private static float ShellThicknessWorld(float thickness) =>
@@ -1105,6 +1141,17 @@ public sealed partial class FaceRig : Node2D
 
         _shellMaterial!.SetShaderParameter($"{uniformPrefix}_points", shaderPoints);
         _shellMaterial.SetShaderParameter($"{uniformPrefix}_count", count);
+        int slot = uniformPrefix switch { "left_eye" => 0, "right_eye" => 1, "nose" => 2, _ => 3 };
+        Array.Copy(shaderPoints, 0, _cavityApertures, slot * maximumPoints, maximumPoints);
+        _cavityCounts[slot] = count;
+        _cavityBounds[slot] = count == 0 ? Vector4.Zero : new Vector4(
+            contour.Min(p => p.X), contour.Min(p => p.Y), contour.Max(p => p.X), contour.Max(p => p.Y));
+        if (slot == 3)
+        {
+            _interiorMaterial!.SetShaderParameter("aperture_points", _cavityApertures);
+            _interiorMaterial.SetShaderParameter("aperture_counts", _cavityCounts);
+            _interiorMaterial.SetShaderParameter("aperture_bounds", _cavityBounds);
+        }
     }
 
     private static ArrayMesh BuildFlameMesh(float radius, float height, float lean)

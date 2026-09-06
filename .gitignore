@@ -58,3 +58,5 @@ nunit-*.xml
 
 dist/
 .DS_Store
+# Godot-generated editor and imported-resource cache
+.godot/

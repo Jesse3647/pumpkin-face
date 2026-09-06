@@ -76,6 +76,14 @@ public sealed partial class OperatorPanel : Control
     private HSlider? _motionAmountSlider;
     private float _gestureIntensity = .65f;
     public event Action<AnimationCommand>? PerformanceCommandRequested;
+    public event Action<bool>? PerformanceSoundChanged;
+    public event Action<float>? SongTempoChanged;
+    private Label? _nowPlaying;
+    private ProgressBar? _performanceProgress;
+    private Button? _songButton;
+    private FileDialog? _songPicker;
+    private bool _hasSong;
+    private readonly Dictionary<string, Button> _performanceButtons = [];
 
     public event Action<EmotionId>? EmotionRequested;
     public event Action? NextEmotionRequested;
@@ -352,8 +360,9 @@ public sealed partial class OperatorPanel : Control
         };
         inspector.AddThemeConstantOverride("separation", 12);
         inspectorScroll.AddChild(inspector);
-        inspector.AddChild(BuildOutputCard());
         inspector.AddChild(BuildCharacterCard());
+        inspector.AddChild(BuildSwitchboardCard());
+        inspector.AddChild(BuildOutputCard());
         inspector.AddChild(BuildEmotionsCard());
         inspector.AddChild(BuildPerformanceCard());
         inspector.AddChild(BuildActionScenesCard());
@@ -508,6 +517,102 @@ public sealed partial class OperatorPanel : Control
         content.AddChild(CreateButton("Meet this character", () => PerformanceCommandRequested?.Invoke(new PlayPerformanceDemoCommand())));
         SetCharacter(CharacterCatalog.DefaultId);
         return WrapCard(content);
+    }
+
+    public void SetSongTitle(string title)
+    {
+        _hasSong = true;
+        if (_songButton is not null)
+        {
+            _songButton.Text = "Play your song";
+            _songButton.TooltipText = title;
+        }
+    }
+
+    public void SetSwitchboardState(string? id, string title, double position, double duration)
+    {
+        if (_nowPlaying is not null) _nowPlaying.Text = id is null ? "Ready — choose a performance" :
+            $"{title}   {position:0.0} / {duration:0.#} s";
+        if (_performanceProgress is not null) _performanceProgress.Value = id is null || duration <= 0 ? 0 : position / duration * 100;
+        foreach (var (key, button) in _performanceButtons)
+            button.SetPressedNoSignal(key == id);
+        _songButton?.SetPressedNoSignal(id == PerformanceLibrary.SongId);
+    }
+
+    private Control BuildSwitchboardCard()
+    {
+        VBoxContainer content = CreateCardContent("Performance switchboard");
+        content.AddChild(new Label { Text = "Choose a moment. Each plays once, then rests.",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart });
+        GridContainer board = new() { Columns = 2, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        board.AddThemeConstantOverride("h_separation", 8);
+        board.AddThemeConstantOverride("v_separation", 8);
+        foreach (var clip in PerformanceLibrary.All)
+        {
+            Button button = CreateButton($"{clip.Title}\n{clip.Duration:0.#} s · {(clip.AudioFile is null ? "silent" : clip.AudioLabel)}",
+                () => PerformanceCommandRequested?.Invoke(new PlayCannedPerformanceCommand(clip.Id)));
+            button.CustomMinimumSize = new Vector2(0, 62);
+            button.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            button.TooltipText = clip.Description;
+            StylePerformanceButton(button);
+            _performanceButtons.Add(clip.Id, button);
+            board.AddChild(button);
+        }
+        _songButton = CreateButton("Your song…\nChoose audio", () => {
+            if (_hasSong) PerformanceCommandRequested?.Invoke(new PlayCannedPerformanceCommand(PerformanceLibrary.SongId));
+            else _songPicker!.PopupCentered(new Vector2I(800, 540));
+        });
+        _songButton.CustomMinimumSize = new Vector2(0, 62);
+        _songButton.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        StylePerformanceButton(_songButton);
+        board.AddChild(_songButton);
+        content.AddChild(board);
+        _nowPlaying = new Label { Text = "Ready — choose a performance", AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        content.AddChild(_nowPlaying);
+        _performanceProgress = new ProgressBar { ShowPercentage = false, CustomMinimumSize = new Vector2(0, 5) };
+        _performanceProgress.AddThemeStyleboxOverride("background", new StyleBoxFlat { BgColor = new Color("303039") });
+        _performanceProgress.AddThemeStyleboxOverride("fill", new StyleBoxFlat { BgColor = new Color("ff9f32") });
+        content.AddChild(_performanceProgress);
+        HBoxContainer actions = new();
+        CheckButton sound = new() { Text = "Sound", ButtonPressed = true, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        sound.Toggled += enabled => PerformanceSoundChanged?.Invoke(enabled);
+        actions.AddChild(sound);
+        actions.AddChild(CreateButton("Stop", () => PerformanceCommandRequested?.Invoke(new StopCommand())));
+        content.AddChild(actions);
+        HBoxContainer songSettings = new();
+        songSettings.AddChild(CreateButton("Choose song…", () => _songPicker!.PopupCentered(new Vector2I(800, 540))));
+        songSettings.AddChild(new Label { Text = "Song tempo", SizeFlagsHorizontal = SizeFlags.ExpandFill });
+        SpinBox tempo = new() { MinValue = 40, MaxValue = 200, Step = 1, Value = 120, Suffix = "bpm",
+            CustomMinimumSize = new Vector2(120, 32), TooltipText = "For your chosen song. Match the beat by ear." };
+        tempo.ValueChanged += value => SongTempoChanged?.Invoke((float)value);
+        songSettings.AddChild(tempo);
+        content.AddChild(songSettings);
+        content.AddChild(new Label { Text = "Try your copy of Ghostbusters. Songs use a dance animation.\nOrgan: InspectorJ · CC BY 4.0",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart, Modulate = new Color("8d8d98") });
+        _songPicker = new FileDialog {
+            Title = "Choose a song to perform", FileMode = FileDialog.FileModeEnum.OpenFile,
+            Access = FileDialog.AccessEnum.Filesystem, UseNativeDialog = true,
+            Filters = ["*.mp3,*.wav,*.ogg;Audio files;audio/mpeg,audio/wav,audio/ogg"],
+        };
+        _songPicker.FileSelected += path => PerformanceCommandRequested?.Invoke(new PlaySongFileCommand(path));
+        AddChild(_songPicker);
+        return WrapCard(content);
+    }
+
+    private static void StylePerformanceButton(Button button)
+    {
+        button.ToggleMode = true;
+        foreach (var (state, background, border) in new[] {
+            ("normal", "24242c", "3b3b45"), ("hover", "333039", "ba7635"),
+            ("pressed", "50331e", "ff9f32"), ("hover_pressed", "604027", "ffb45c"),
+            ("focus", "00000000", "ffb45c"),
+        })
+            button.AddThemeStyleboxOverride(state, new StyleBoxFlat {
+                BgColor = new Color(background), BorderColor = new Color(border),
+                BorderWidthLeft = 1, BorderWidthRight = 1, BorderWidthTop = 1, BorderWidthBottom = 1,
+                CornerRadiusTopLeft = 7, CornerRadiusTopRight = 7, CornerRadiusBottomLeft = 7, CornerRadiusBottomRight = 7,
+                ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 8, ContentMarginBottom = 8,
+            });
     }
 
     public void SetPerformanceState(BehaviorState? state, float motion)

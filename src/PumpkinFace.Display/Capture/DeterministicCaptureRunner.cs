@@ -125,6 +125,18 @@ public sealed partial class DeterministicCaptureRunner : Node
             return;
         }
 
+        if (OS.GetCmdlineUserArgs().Contains("--capture-playful-scare"))
+            _frames = Enumerable.Range(0, 271).Select(i => new CaptureFrame(EmotionId.Happy, .42,
+                $"playful-scare-{i:D3}.png", .65f, PerformanceTime: i / 20d, Variant: "playful-scare")).ToArray();
+        string? clipId = OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--capture-clip="))?.Split('=', 2)[1];
+        if (clipId is not null)
+        {
+            var clip = PerformanceLibrary.Find(clipId);
+            if (clip is null) { FailAndQuit($"Unknown performance: {clipId}", VisualDifferenceExitCode); return; }
+            _frames = Enumerable.Range(0, (int)Math.Ceiling(clip.Duration * 20) + 1)
+                .Select(i => new CaptureFrame(EmotionId.Happy, .42, $"{clipId}-{i:D3}.png", .65f,
+                    PerformanceTime: i / 20d, Variant: $"clip:{clipId}")).ToArray();
+        }
         if (OS.GetCmdlineUserArgs().Contains("--capture-performance-motion")) _frames = PerformanceSequence();
         if (OS.GetCmdlineUserArgs().Contains("--capture-attention-motion")) _frames = AttentionSequence();
         if (OS.GetCmdlineUserArgs().Contains("--capture-gesture-motion")) _frames = GestureSequence();
@@ -249,7 +261,8 @@ public sealed partial class DeterministicCaptureRunner : Node
         });
         _stage!.EmotionAmount = frame.EmotionAmount;
         _stage.SetCameraOrbit(frame.CameraOrbitDegrees ?? Vector2.Zero);
-        _stage!.AnimationTime = _frameIndex * 0.731 + frame.Progress * 4.0;
+        _stage!.AnimationTime = frame.Variant == "playful-scare" || frame.Variant?.StartsWith("clip:") == true
+            ? frame.PerformanceTime : _frameIndex * 0.731 + frame.Progress * 4.0;
         _stage.SetPose(BuildCapturePose(frame), _animations.CurrentPose);
         _settleFrames = 0;
         _capturePending = false;
@@ -349,8 +362,13 @@ public sealed partial class DeterministicCaptureRunner : Node
             performance.Update(frame.PerformanceTime);
             pose = performance.ComposePose(pose);
         }
+        if (frame.Variant?.StartsWith("clip:") == true)
+            return PerformanceLibrary.Sample(frame.Variant[5..], frame.PerformanceTime, pose);
         switch (frame.Variant)
         {
+            case "playful-scare":
+                pose = PlayfulScarePerformance.Sample(frame.PerformanceTime, pose);
+                break;
             case "character-idle":
                 performance.Handle(new SetBehaviorStateCommand(BehaviorState.Idle));
                 performance.Update(frame.PerformanceTime);

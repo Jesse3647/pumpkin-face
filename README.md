@@ -82,9 +82,26 @@ The **Character performance** card provides one-shot gestures, nine audience-rel
 
 The default is a softened Happy expression with quiet attention movements and clearly readable nods, shakes, and curious tilts. Eyes lead attention shifts, keep their target through tilts and nods, and make occasional tiny corrections during longer holds. The upper lid closes over a stationary pupil with a smaller lift from the lower lid; both lids subtly follow vertical gaze. Blinks close quickly and reopen more slowly, and gestures settle back into the selected expression. Compatible actions overlap; a conflicting gesture replaces the previous action with a short transition. Speech retains ownership of its mouth shapes while eye and motion gestures continue.
 
-**Play demonstration** runs a repeatable sequence of notice → held eye contact → curious tilt → blink → nod, followed by listening, thinking, surprise, and delight. **Stop performance** stops audio, invalidates pending speech, cancels gestures and autonomous behavior, and settles the face. Preparing speech may finish in the background after Stop, but its result cannot restart playback.
+The **Performance switchboard** offers six one-shot routines for either character:
+
+| Button | Length | Performance |
+| --- | --- | --- |
+| A little scare | 13.5 s | Curious look, windup, recorded “Boo!”, chuckle, wink |
+| Boo! | 2.7 s | Quick windup and the same recorded “Boo!” |
+| Just kidding | 3.5 s | Recorded chuckle with expressive eyes |
+| Our little secret | 3 s | Silent smile and wink |
+| Vader’s entrance | 13.5 s | Recorded breathing, red saber ignition and glow, an imposing stare and a slow nod |
+| Haunted organ | 20 s | Theatrical sway to InspectorJ’s recorded Bach organ excerpt |
+
+The rejected “hmm” is removed from both audio and mouth cues. **Your song…** opens a chooser for a local MP3, WAV or Ogg recording (for example, your copy of *Ghostbusters*). Selection starts playback; the same button replays it, and **Choose song…** replaces the selection. The selected recording is kept for the current session. Songs use a repeating dance animation with adjustable **Song tempo**; they do not have sung lip-sync or automatic beat detection. Ghostbusters audio is not bundled. The included organ performance is instrumental, with source credits in [the audio notes](src/PumpkinFace.Display/Assets/Audio/README.md).
+
+Selecting a performance replaces the current performance or speech. Progress and the active button show what is playing. **Stop** stops the sound and settles the face over 240 ms; each clip also returns to rest naturally. **Sound** mutes the performance without changing timing. Manual gestures, directed looks, emotions, behavior changes, enabled scenes, typed speech, and character changes interrupt it. Calibration adjustments do not. The sound toggle is a session setting. Jack’s **Meet this character** and **Play demonstration** remain shortcuts to A little scare; Pip’s introduction retains the existing gesture demonstration.
+
+**Stop performance** stops audio, invalidates pending speech, cancels gestures and autonomous behavior, and settles the face. Preparing speech may finish in the background after Stop, but its result cannot restart playback.
 
 Whole-face motion is limited to 4% of the design canvas horizontally, 5% vertically, and ±12° of roll at maximum strength. Set its slider to zero for an anchored face. Alignment guides suppress all performance translation and rotation. These performance controls are session settings; calibration profiles remain unchanged.
+
+The lighting uses a shared irregular candle source, golden reflected highlights, amber shadows, subtle flesh texture, warm eye reflections, and softer spill. A contour-based approximation darkens the cavity near cut edges and teeth; it fades out during camera orbit. These are custom Compatibility-renderer materials, not a new real-time shadow-map pipeline.
 
 The existing Looking and Blinking toggles use the same performance scheduler. Candle Sputter remains an independent lighting action. Speech continues to use Kokoro and the existing spelling-based viseme timing; this milestone improves blending and coordination, not phoneme alignment.
 
@@ -183,6 +200,22 @@ Use `--capture-gesture-motion` instead to compare curious tilt, nod, and shake s
 
 Add `--capture-character=pip` to capture Pip with any of these modes (the default is `jack`). Use `--capture-character-idle` for 12 seconds of the selected character's seeded idle behavior at 10 samples per second, or `--capture-operator` for a screenshot of its character selector and preview. Capture mode does not change saved character or calibration settings.
 
+To render Jack’s full scene at 20 samples per second (271 frames):
+
+```sh
+godot-mono --path src/PumpkinFace.Display -- \
+  --capture-dir="$PWD/captures/playful-scare" --capture-playful-scare
+```
+
+The matching soundtrack is `src/PumpkinFace.Display/Assets/Audio/jack-playful-scare.wav`, with playback gain of -5 dB. This capture fixes the candle clock to scene time. To check all bundled clips, a chosen song, invalid selections, muted timing, Stop/release, replay, and completion without changing saved settings:
+
+```sh
+godot-mono --headless --path src/PumpkinFace.Display -- --verify-playful-scare
+# Optional: add --verify-song=/absolute/path/to/song.mp3 to exercise an external recording.
+```
+
+This checks engine playback behavior; it does not replace listening to the speaker or reviewing the projection on a physical pumpkin. Arbitrary typed speech still uses the existing spelling-based mouth planner.
+
 ## Future model control
 
 `AppRoot.CommandSink` is the internal, non-blocking command interface; `AppRoot.PerformanceStatus` exposes immutable snapshots. `GestureCatalog.All` describes supported gestures and their timing and intensity limits. A future model adapter can request gestures and observe completion without controlling individual frames:
@@ -211,3 +244,5 @@ godot-mono --headless --path src/PumpkinFace.Display \
 The preset creates a universal macOS bundle using Apple's system `codesign` with the certificate-free `-` ad-hoc identity. It has no Apple Developer ID identity and is not notarized; the ad-hoc signature is required for a reliable launch on Apple Silicon but does not establish a trusted publisher. On another Mac, Finder may require **Control-click → Open** on first launch. Developer ID signing and notarization are intentionally outside V1.
 
 Only the macOS export preset is currently supplied. The application architecture is portable, but Windows and Linux packages require corresponding Godot export presets and platform testing.
+
+Capture another switchboard clip using `--capture-dir=/absolute/output/path --capture-clip=organ` (IDs: `little-scare`, `boo`, `chuckle`, `wink`, `vader`, `organ`). Use `--capture-operator` for the switchboard UI.
