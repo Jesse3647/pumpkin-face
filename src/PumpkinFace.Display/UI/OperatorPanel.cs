@@ -70,6 +70,11 @@ public sealed partial class OperatorPanel : Control
     private Guid _selectedProfileId;
     private bool _updating;
 
+    private OptionButton? _behaviorPicker;
+    private HSlider? _motionAmountSlider;
+    private float _gestureIntensity = .65f;
+    public event Action<AnimationCommand>? PerformanceCommandRequested;
+
     public event Action<EmotionId>? EmotionRequested;
     public event Action? NextEmotionRequested;
     public event Action<double>? EmotionAmountChanged;
@@ -347,6 +352,7 @@ public sealed partial class OperatorPanel : Control
         inspectorScroll.AddChild(inspector);
         inspector.AddChild(BuildOutputCard());
         inspector.AddChild(BuildEmotionsCard());
+        inspector.AddChild(BuildPerformanceCard());
         inspector.AddChild(BuildActionScenesCard());
         inspector.AddChild(BuildPumpkinLightingCard());
         inspector.AddChild(BuildProfilesCard());
@@ -470,10 +476,63 @@ public sealed partial class OperatorPanel : Control
         return WrapCard(content);
     }
 
+    public void SetEmotionAmount(float amount)
+    {
+        _emotionAmountSlider?.SetValueNoSignal(amount);
+        if (_emotionAmountValue is not null) _emotionAmountValue.Text = $"{amount:P0}";
+    }
+
+    public void SetPerformanceState(BehaviorState? state, float motion)
+    {
+        _behaviorPicker?.Select(state is { } value ? (int)value + 1 : 0);
+        _motionAmountSlider?.SetValueNoSignal(motion);
+    }
+
+    private Control BuildPerformanceCard()
+    {
+        VBoxContainer content = CreateCardContent("Character performance");
+        _behaviorPicker = new OptionButton { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        foreach (string label in new[] { "Rest (no autonomous behavior)", "Idle — curious and playful", "Listening — attentive", "Thinking — considering" })
+            _behaviorPicker.AddItem(label);
+        _behaviorPicker.ItemSelected += index => PerformanceCommandRequested?.Invoke(
+            new SetBehaviorStateCommand(index == 0 ? null : (BehaviorState)(index - 1)));
+        content.AddChild(_behaviorPicker);
+        content.AddChild(new Label { Text = "Gesture intensity" });
+        HSlider intensity = new() { MinValue = 0, MaxValue = 1, Step = .05, Value = .65 };
+        intensity.ValueChanged += value => _gestureIntensity = (float)value;
+        content.AddChild(intensity);
+        GridContainer gestures = new() { Columns = 3 };
+        foreach (GestureDefinition definition in GestureCatalog.All)
+            gestures.AddChild(CreateButton(definition.Label, () => PerformanceCommandRequested?.Invoke(
+                new PlayGestureCommand(Guid.NewGuid(), definition.Id, _gestureIntensity))));
+        content.AddChild(gestures);
+        content.AddChild(new Label { Text = "Look toward (from the audience’s view)" });
+        GridContainer targets = new() { Columns = 3 };
+        SpinBox hold = new() { MinValue = .1, MaxValue = 30, Step = .1, Value = 2, Suffix = "s hold" };
+        string[] labels = ["Upper left", "Up", "Upper right", "Left", "Center", "Right", "Lower left", "Down", "Lower right"];
+        for (int i = 0; i < 9; i++)
+        {
+            float x = (i % 3 - 1) * .7f, y = (i / 3 - 1) * .6f;
+            targets.AddChild(CreateButton(labels[i], () => PerformanceCommandRequested?.Invoke(
+                new SetGazeTargetCommand(Guid.NewGuid(), x, y, hold.Value))));
+        }
+        content.AddChild(targets);
+        content.AddChild(hold);
+        content.AddChild(new Label { Text = "Whole-face motion (off → full expression)" });
+        _motionAmountSlider = new HSlider { MinValue = 0, MaxValue = 1, Step = .05, Value = .65 };
+        _motionAmountSlider.ValueChanged += value => PerformanceCommandRequested?.Invoke(new SetMotionAmountCommand((float)value));
+        content.AddChild(_motionAmountSlider);
+        HBoxContainer actions = new();
+        actions.AddChild(CreateButton("Play demonstration", () => PerformanceCommandRequested?.Invoke(new PlayPerformanceDemoCommand())));
+        actions.AddChild(CreateButton("Stop performance", () => PerformanceCommandRequested?.Invoke(new StopCommand())));
+        content.AddChild(actions);
+        return WrapCard(content);
+    }
+
     private Control BuildActionScenesCard()
     {
         VBoxContainer content = CreateCardContent("Scenes");
-        _autoplayToggle = new CheckButton { Text = "Autoplay scenes", ButtonPressed = true };
+        _autoplayToggle = new CheckButton { Text = "Autoplay curious idle", ButtonPressed = true };
         _autoplayToggle.Toggled += enabled =>
         {
             if (!_updating)

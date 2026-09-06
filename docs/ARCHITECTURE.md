@@ -90,19 +90,25 @@ The queue rejects a new command when full rather than silently discarding a prev
 
 A manual emotion or **Next emotion** starts immediately. When it interrupts a running expression, the `AnimationTree` morphs directly to the new traced endpoint over 250 ms. After an emotion completes, its expression remains visible; no neutral face is generated.
 
-Action scenes are a separate composable overlay. `ActionSceneController` gives **Looking**, **Blinking**, and **Candle Sputter** independent clocks and channel state. Manual actions can therefore run in any combination without one action resetting another, and each loops while selected. Typed speech temporarily uses an internal mouth-animation channel alongside those scenes. When playback finishes, a smooth 360 ms speech blend restores the active expression. Scene autoplay waits a randomized interval, chooses a short randomized combination, and repeats without modifying the selected emotion or its intensity.
+`PerformanceController` in Core owns gesture timing, attention, and asymmetric blinks. It advances in fixed 1/240-second steps with seeded randomness, accepting elapsed time from the application. Idle/listening/thinking behaviors schedule lower-priority gestures with bounded targets, meaningful holds, and delayed face follow-through. Looking/Blinking scene toggles adapt to this same scheduler; their legacy Display frames are not composited into the face.
+
+Attention owns gaze; gestures own individual eyelids, brows, pupils, mouth, or motion channels. Attention’s delayed face response is an additive motion layer, so starting or cancelling a nod/tilt cannot cancel the gaze request. Motion gesture transitions capture the current gesture contribution without double-counting the attention response. Compatible gestures overlap. An explicit action cancels conflicting actions and blends their current deltas into the new action; unused channels settle independently. Autonomous actions cannot interrupt explicit actions on the same channels. Long gaze holds include occasional brief binocular corrections bounded to ±0.018 horizontally and ±0.012 vertically, with full stillness between corrections. They use a separate seeded random stream and do not move the face-follow target. `PoseCompositor` applies these signed deltas to the selected expression, preserving untouched channels. Stop disables autonomous behavior and releases the gesture deltas over 200 ms.
+
+`ActionSceneController` retains the lighting and speech timelines and legacy scene-selection surface. `SpeechPoseCompositor` applies jaw/width/roundness after performance composition, leaving mouth corners, eyes, brows, and motion intact. Speech fades in over 100 ms and releases over 360 ms from its current blend. Viseme weights interpolate from silence. The audible playback position remains the master clock. `SpeechPreparationGate` invalidates late synthesis results after Stop while allowing the native worker to finish safely.
+
+`PerformanceCommandEndpoint` wraps the bounded queue and records rejected performance requests. `AppRoot.CommandSink` and `PerformanceStatus` are the future controller boundary. Requests carry caller-generated IDs; recent duplicate IDs are idempotent. Immutable snapshots retain up to 256 recent outcomes. Inference and network transport remain outside this implementation.
 
 Each expression has two equivalent state-machine nodes backed by the same authored clip. Re-triggering the scene that is already playing alternates to its partner node, allowing a real 250 ms crossfade back to the beginning; a self-transition would either be ignored or restart abruptly. Scene requests received in one command-drain batch are coalesced to the final request. If another request arrives during a crossfade, it waits for that fade to finish and stretches its normalized clip over the director's remaining scene time, preventing queued state-machine travel from drifting away from scheduler completion.
 
-Every authored scene is a normalized one-second clip. Its expression node stretches a custom timeline to the duration chosen by `SceneDirector`; the narrow per-scene range preserves a little deterministic autoplay variation without noticeably changing the acting tempo. The state machine itself continues on wall-clock time, so its crossfade remains a real 250 ms instead of stretching with a long scene.
-
-Tracks use channel-appropriate interpolation. Gaze, eyelid, and tremble beats use linear keys with tightly spaced moves and explicit holds for readable darts, blinks, and accents. Brows, pupils, mouth shapes, and candle intensity retain cubic interpolation for organic settling and restrained light changes.
-
-The `AnimationTree` evaluates three independent layers. An always-running ambient baseline supplies subtle candle variation. The expression state machine is converted to a delta by subtracting a constant numerical reference pose, then added to that baseline. This reference is only animation math and is never rendered as a fourth face. A final filtered `SpeechMouthLayer` is restricted to the five mouth controls reserved for visemes. Typed speech supplies these channels directly to the rendered pose. Deterministic mixing keeps the additive math unnormalized.
+The existing emotion AnimationTree still supplies authored expression crossfades and ambient lighting. Runtime gestures do not modify that tree or its numerical reference pose. The final pose is composed once in AppRoot: expression → performance → speech → candle multiplier. Frame-rate-independent core tests cover timing, interruptions, cancellation, and channel ownership.
 
 ## Rendering pipeline
 
 `FaceStage` renders a 1600×900 calibrated canvas into a `SubViewport` sized to the selected projector output. `FaceRig` nests a 3200×1800 3D viewport inside that canvas and displays it at half scale, providing 2× supersampling while the projector calibration and operator drag handles remain in stable 2D design coordinates. The clear/background remains black and all shaders target Godot's broad-hardware Compatibility renderer.
+
+The rig receives both the base expression and the final performed pose. Base brow/smile coordinates select the traced artwork; local brow, corner, pupil, and mouth deformations apply afterward. Rounded mouth targets follow perimeter order so concave teeth cannot fold across each other, and rounded openings keep clearance below the nose. Pupil and catchlight anchors are scaled only by emotion intensity, independently of eyelid openness. `EyeContourDeformer` moves an upper lid across the opening, with a smaller lower-lid lift, and adds subtle vertical gaze following to the lids. Clipping handles separated pieces in concave carved outlines by retaining the largest visible opening. Pupil and catchlight polygons are then clipped to that aperture without moving their anchors.
+
+Explicit motion channels drive the child transform beneath projection calibration, bounded to ±4% horizontally and ±5% vertically on the 1600×900 design canvas, and ±12° roll. Nods and shakes use the broader travel; curious tilts use the broader roll. Other gesture and attention motion is converted from the previous physical range to retain its established amplitude. Motion strength also scales frightened tremble. Mouth openness no longer drives periodic bobbing or scaling. Guides suppress this child transform, preserving calibration coordinates. Camera orbit remains independent.
 
 The operator preview forwards orbit drags to `CameraOrbitController`. It moves the actual orthographic `Camera3D` around the pumpkin rather than rotating the final texture, exposing surface curvature, feature parallax, and cut-wall depth. Orbit is clamped to safe presentation angles and begins a fast smooth return to the front view after five seconds without input. With alignment guides hidden, left-drag orbits; with guides visible, right-drag orbits while left-drag remains reserved for calibration.
 
@@ -148,8 +154,8 @@ Persistence failures are returned to the operator as warnings; they do not put c
 Capture mode is selected before normal UI and projector composition. It creates only `FaceStage`, `SceneAnimationController`, and `DeterministicCaptureRunner`. The runner:
 
 - fixes the output at 1280×720;
-- disables guides and automatic shader-time advancement;
-- selects nine fixed expression/progress pairs, one reduced-intensity frame, two shell-thickness extremes, four action-scene frames, and two camera-orbit views;
+- disables automatic shader-time advancement; guides appear only in the dedicated motion-suppression frame;
+- selects 38 expression, gesture, gaze, pupil, speech, motion, shell-thickness, and camera frames, 244 temporal samples with `--capture-performance-motion`, or 121 continuous-attention samples with `--capture-attention-motion`;
 - waits three process frames for each pose to settle;
 - writes PNGs and optionally compares them to matching references;
 - uses luma RMSE with a maximum accepted difference of `0.035`;
@@ -165,25 +171,25 @@ The core defines `Viseme`, timestamped/weighted `VisemeFrame`, and `IAudioClock`
 
 `SceneAnimationController` also reserves a filtered `SpeechMouthLayer` in its `AnimationTree`. That additive layer is limited to `JawOpen`, `MouthWidth`, `MouthRoundness`, `LeftMouthCorner`, and `RightMouthCorner`; gaze, eyelids, brows, tremble, and lighting remain owned by the expression beneath it.
 
-The typed-speech path keeps spelling-based mouth planning because sherpa-onnx's offline TTS result does not expose phoneme timestamps. A higher-fidelity extension can replace `SpeechPhrasePlanner` with timing from a forced aligner or offline lip-sync model while preserving the same ordered `VisemeFrame` boundary. The existing direct mouth-pose application can also move into the reserved `SpeechMouthLayer` without changing scene composition. Audio must remain the master clock; visemes should never advance solely by accumulating render-frame delta.
+The typed-speech path keeps spelling-based mouth planning because sherpa-onnx's offline TTS result does not expose phoneme timestamps. A higher-fidelity extension can replace `SpeechPhrasePlanner` with timing from a forced aligner or offline lip-sync model while preserving the same ordered `VisemeFrame` boundary. The runtime compositor keeps speech ownership explicit outside the reserved AnimationTree speech layer. Audio must remain the master clock; visemes should never advance solely by accumulating render-frame delta.
 
 ### Remote web control
 
 `AnimationCommand` is the stable behavior vocabulary, and `IAnimationCommandSink.TryPost` is the producer boundary. A future ASP.NET Core controller can live in a new project that references `PumpkinFace.Core`.
 
-For an embedded local service, expose the existing sink from `AppRoot`, host HTTP work away from the Godot main thread, and post validated commands into the thread-safe queue. For a separate companion process or secondary app, serialize a small allow-listed command DTO over loopback HTTP/WebSocket and translate it to core commands at the display boundary.
+For an embedded local service, use `AppRoot.CommandSink`, host HTTP work away from the Godot main thread, and post validated commands into the thread-safe queue. For a separate companion process or secondary app, serialize a small allow-listed command DTO over loopback HTTP/WebSocket and translate it to core commands at the display boundary.
 
 Recommended safety defaults are loopback-only binding, explicit opt-in before LAN access, authentication for non-loopback clients, rate limits below queue capacity, bounded payloads, and validation of enum/calibration ranges. A network request must never receive or mutate a Godot node reference.
 
 ### Local AI control
 
-Run local inference outside the render loop, ideally in a worker or companion process. Give the model a small tool/schema that permits only high-level actions such as select emotion, set emotion amount, play scene, next emotion, autoplay, and stop. Validate its output and post the resulting `AnimationCommand` through the same sink used by the operator and remote controller.
+Run local inference outside the render loop, ideally in a worker or companion process. Give the model a small tool/schema based on `GestureCatalog`, gesture/gaze requests, behavior state, speech, emotion, cancellation, and stop. Use `PerformanceStatus` for completion feedback. Validate its output and post the resulting `AnimationCommand` through the same sink used by the operator and remote controller.
 
 Keep model latency, cancellation, and failures independent of the 60 FPS renderer. The bounded queue is backpressure, not long-term planning storage; discard or coalesce stale AI intent before posting. Projection calibration should not be model-controlled without an explicit operator authorization path.
 
 ### Additional scenes and render controls
 
-Adding a built-in expression requires coordinated changes to `EmotionId`, `SceneTimings.For`, the runtime animation library/state machine, UI controls, and deterministic capture frames. New independent actions belong in `SceneId` and `ActionSceneController`. Pose channels should remain normalized and renderer-independent. If a future feature needs a new channel, add it to `FacePose`, its `FacePoseChannels` group, driver, rig, clamps/interpolation tests, and speech filtering where relevant.
+Adding a built-in expression requires coordinated changes to `EmotionId`, `SceneTimings.For`, the runtime animation library/state machine, UI controls, and deterministic capture frames. New gestures belong in `GestureId`, `GestureCatalog`, and `PerformanceController`; lighting and speech timeline extensions remain in `ActionSceneController`. Pose channels should remain normalized and renderer-independent. If a future feature needs a new channel, add it to `FacePose`, its `FacePoseChannels` group, driver, rig, clamps/interpolation tests, and speech filtering where relevant.
 
 ## Verification boundaries
 
@@ -200,4 +206,4 @@ Automated .NET tests do not validate native window placement, cursor hiding, GPU
 - slight projector defocus and pumpkin ribs do not erase tooth gaps or turn the bevel into a flat outline;
 - 1920×1080 autoplay holds the target frame rate during a 30-minute soak without steady memory growth.
 
-The supplied macOS preset exports a universal bundle with only Apple's certificate-free ad-hoc integrity signature. Apple Developer ID signing and notarization, Windows/Linux presets, audio, remote control, AI inference, camera alignment, and corner-pin mapping remain deliberate V1 exclusions.
+The supplied macOS preset exports a universal bundle with only Apple's certificate-free ad-hoc integrity signature. Apple Developer ID signing and notarization, Windows/Linux presets, remote control, AI inference, camera alignment, and corner-pin mapping remain deliberate exclusions.

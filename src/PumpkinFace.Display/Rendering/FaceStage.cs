@@ -21,6 +21,7 @@ public sealed partial class FaceStage : Node
     private ProjectionGuides? _projectionGuides;
     private FaceDesignGuides? _faceGuides;
     private FacePose _pose = FacePose.Neutral;
+    private FacePose _expressionPose = FacePose.Neutral;
     private ProjectionCalibration _calibration = ProjectionCalibration.Default;
     private float _emotionAmount = 1f;
     private Vector2I _outputSize = DefaultOutputSize;
@@ -47,6 +48,7 @@ public sealed partial class FaceStage : Node
         {
             _showGuides = value;
             ApplyGuideVisibility();
+            ApplyTremble();
         }
     }
 
@@ -157,11 +159,12 @@ public sealed partial class FaceStage : Node
         _rig!.CameraOrbitDegrees = _cameraOrbit.Degrees;
     }
 
-    public void SetPose(FacePose pose)
+    public void SetPose(FacePose pose, FacePose? expression = null)
     {
         _pose = pose.Clamp();
+        _expressionPose = (expression ?? pose).Clamp();
         EnsureInitialized();
-        _rig!.SetPose(_pose);
+        _rig!.SetPose(_pose, _expressionPose);
         ApplyTremble();
     }
 
@@ -276,7 +279,7 @@ public sealed partial class FaceStage : Node
         _projectionRoot.AddChild(_faceGuides);
         stageCanvas.AddChild(_projectionGuides);
 
-        _rig.SetPose(_pose);
+        _rig.SetPose(_pose, _expressionPose);
         _rig.SetCalibration(_calibration);
         _rig.EmotionAmount = _emotionAmount;
         _rig.CameraOrbitDegrees = _cameraOrbit.Degrees;
@@ -311,8 +314,8 @@ public sealed partial class FaceStage : Node
     {
         if (_rig is not null && _trembleRoot is not null)
         {
-            _trembleRoot.Position = _rig.PerformanceOffset;
-            _trembleRoot.Rotation = _rig.PerformanceRotationRadians;
+            _trembleRoot.Position = _showGuides ? Vector2.Zero : _rig.PerformanceOffset;
+            _trembleRoot.Rotation = _showGuides ? 0 : _rig.PerformanceRotationRadians;
             _trembleRoot.Scale = _rig.PerformanceScale;
         }
     }

@@ -67,7 +67,7 @@ public sealed class ActionSceneController
             .OrderBy(frame => frame.Timestamp)
             .Select(frame => new PhraseKeyframe(
                 Math.Clamp(frame.Timestamp.TotalSeconds, 0d, _speechDuration),
-                frame.Shape))
+                frame.Shape, frame.Weight))
             .ToArray();
         if (_speechTimeline.Length == 0 || _speechTimeline[0].Timestamp > 0d)
         {
@@ -106,10 +106,12 @@ public sealed class ActionSceneController
             return;
         }
 
+        if (state.SpeechReleasing) return;
+        state.ReleaseBlend = state.Frame.SpeechBlend;
         state.SpeechReleasing = true;
         state.TransitionElapsed = 0d;
         state.TransitionDuration = 0.36d;
-        state.Frame = state.Frame with { SpeechActive = false, SpeechBlend = 1f };
+        state.Frame = state.Frame with { SpeechActive = false };
         ComposeFrame();
     }
 
@@ -266,7 +268,7 @@ public sealed class ActionSceneController
                 JawOpen = rest.JawOpen,
                 MouthWidth = rest.Width,
                 MouthRoundness = rest.Roundness,
-                SpeechBlend = 1f,
+                SpeechBlend = 0f,
             };
         }
         else if (scene == SceneId.CandleSputter)
@@ -338,8 +340,9 @@ public sealed class ActionSceneController
         {
             state.TransitionElapsed += step;
             float progress = (float)Math.Clamp(state.TransitionElapsed / state.TransitionDuration, 0d, 1d);
-            float openness = Mathf.Abs(progress * 2f - 1f);
-            state.Frame = state.Frame with { EyelidOpen = Mathf.Lerp(0.055f, 1f, openness) };
+            float closure = Smooth(Math.Clamp(progress / .23f, 0, 1)) *
+                (1 - Smooth(Math.Clamp((progress - .34f) / .66f, 0, 1)));
+            state.Frame = state.Frame with { EyelidOpen = 1 - closure };
             if (progress >= 1f)
             {
                 state.Blinking = false;
@@ -374,14 +377,14 @@ public sealed class ActionSceneController
             (state.Elapsed - from.Timestamp) / Math.Max(0.001d, to.Timestamp - from.Timestamp),
             0d,
             1d));
-        MouthPose mouth = MouthPose.Lerp(PoseFor(from.Shape), PoseFor(to.Shape), amount);
+        MouthPose mouth = MouthPose.Lerp(WeightedPose(from), WeightedPose(to), amount);
         state.Frame = state.Frame with
         {
             JawOpen = mouth.JawOpen,
             SpeechActive = true,
             MouthWidth = mouth.Width,
             MouthRoundness = mouth.Roundness,
-            SpeechBlend = 1f,
+            SpeechBlend = Smooth((float)Math.Clamp(state.Elapsed / .10d, 0d, 1d)),
         };
     }
 
@@ -392,7 +395,7 @@ public sealed class ActionSceneController
         state.Frame = state.Frame with
         {
             SpeechActive = false,
-            SpeechBlend = 1f - amount,
+            SpeechBlend = state.ReleaseBlend * (1f - amount),
         };
     }
 
@@ -522,7 +525,10 @@ public sealed class ActionSceneController
         _ => new(0.01f, 0.56f, 0.22f),
     };
 
-    private readonly record struct PhraseKeyframe(double Timestamp, Viseme Shape);
+    private static MouthPose WeightedPose(PhraseKeyframe frame) =>
+        MouthPose.Lerp(PoseFor(Viseme.Silence), PoseFor(frame.Shape), frame.Weight);
+
+    private readonly record struct PhraseKeyframe(double Timestamp, Viseme Shape, float Weight = 1f);
 
     private readonly record struct MouthPose(float JawOpen, float Width, float Roundness)
     {
@@ -545,6 +551,7 @@ public sealed class ActionSceneController
         public float LightTarget { get; set; } = 1f;
         public bool Blinking { get; set; }
         public bool SpeechReleasing { get; set; }
+        public float ReleaseBlend { get; set; }
         public ActionSceneFrame Frame { get; set; } = ActionSceneFrame.Rest;
     }
 }
