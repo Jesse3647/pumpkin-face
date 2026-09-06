@@ -41,6 +41,7 @@ public sealed class CalibrationProfileStoreTests
             profileId = profile.Id;
             store.RememberDisplay(2, "Living room projector");
             store.SetAutoplayEnabled(false);
+            store.SelectCharacter(CharacterCatalog.PipId);
             await store.FlushAsync();
         }
 
@@ -53,6 +54,7 @@ public sealed class CalibrationProfileStoreTests
             Assert.Equal(2, reloaded.State.LastDisplayIndex);
             Assert.Equal("Living room projector", reloaded.State.LastDisplayName);
             Assert.False(reloaded.State.AutoplayEnabled);
+            Assert.Equal(CharacterCatalog.PipId, reloaded.State.SelectedCharacterId);
 
             var profile = Assert.Single(
                 reloaded.State.Profiles,
@@ -77,6 +79,31 @@ public sealed class CalibrationProfileStoreTests
                 reloaded.State.SchemaVersion);
             Assert.Equal(CalibrationProfile.CurrentSchemaVersion, profile.SchemaVersion);
         }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("a-character-from-a-newer-version")]
+    public async Task MissingOrUnknownCharacterKeepsExistingCalibration(string? savedCharacter)
+    {
+        using var directory = new TemporaryDirectory();
+        Guid profileId;
+        await using (var store = CreateStore(directory.Path))
+        {
+            store.Load();
+            profileId = store.CreateProfile("Porch", ProjectionCalibration.Default with { OffsetX = .13f }).Id;
+            await store.FlushAsync();
+        }
+        string file = Directory.GetFiles(directory.Path, "*.json").Single(path => !path.EndsWith(".backup.json"));
+        JsonObject document = JsonNode.Parse(await File.ReadAllTextAsync(file))!.AsObject();
+        if (savedCharacter is null) document.Remove("selectedCharacterId");
+        else document["selectedCharacterId"] = savedCharacter;
+        await File.WriteAllTextAsync(file, document.ToJsonString());
+        await using var reloaded = CreateStore(directory.Path);
+        reloaded.Load();
+        Assert.Equal(CharacterCatalog.DefaultId, reloaded.State.SelectedCharacterId);
+        Assert.Equal(profileId, reloaded.State.SelectedProfileId);
+        Assert.Equal(.13f, reloaded.State.SelectedProfile.Calibration.OffsetX);
     }
 
     [Fact]

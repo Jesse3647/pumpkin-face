@@ -23,6 +23,7 @@ public sealed partial class AppRoot : Node
     private long _speechGeneration;
     public IAnimationCommandSink CommandSink => _endpoint ??= new(_commands, _performance);
     public IPerformanceStatusSource PerformanceStatus => _performance;
+    public CharacterDefinition CurrentCharacter => _performance.Character;
 
     private CalibrationProfileStore? _profiles;
     private SceneDirector? _director;
@@ -61,6 +62,7 @@ public sealed partial class AppRoot : Node
         _animations = new SceneAnimationController { Name = "SceneAnimations" };
         _actionScenes = new ActionSceneController { ExternalSpeechCompletion = true };
         _autoplay = load.State.AutoplayEnabled;
+        _performance.Handle(new SelectCharacterCommand(load.State.SelectedCharacterId));
         _performance.Handle(new SetBehaviorStateCommand(_autoplay ? BehaviorState.Idle : null));
         _projector = new ProjectorHost { Name = "ProjectorHost" };
         _operator = new OperatorPanel { Name = "OperatorPanel" };
@@ -91,8 +93,10 @@ public sealed partial class AppRoot : Node
         _stage.ShowGuides = false;
         _operator.SetPreviewTexture(_stage.Texture);
         _operator.SetAutoplay(load.State.AutoplayEnabled);
-        _stage.EmotionAmount = .65f;
-        _operator.SetEmotionAmount(.65f);
+        _stage.SetCharacter(CurrentCharacter.Id);
+        _operator.SetCharacter(CurrentCharacter.Id);
+        _stage.EmotionAmount = CurrentCharacter.DefaultEmotionAmount;
+        _operator.SetEmotionAmount(CurrentCharacter.DefaultEmotionAmount);
         _operator.SetPerformanceState(_performance.State, _performance.MotionAmount);
         _operator.SetSpeechVoices(KokoroSpeechSynthesizer.Voices, _speechVoice);
         _operator.SetGuides(false);
@@ -193,6 +197,7 @@ public sealed partial class AppRoot : Node
             }
 
             if (_performance.State is { } state) activity += $"  •  {state}";
+            activity = $"{CurrentCharacter.Name}  •  {activity}";
             _operator.SetPerformanceState(_performance.State, _performance.MotionAmount);
             _operator.SetFps(Engine.GetFramesPerSecond(), activity);
         }
@@ -404,6 +409,27 @@ public sealed partial class AppRoot : Node
                 continue;
             }
 
+            if (command is SelectCharacterCommand selection)
+            {
+                if (!CharacterCatalog.IsKnown(selection.CharacterId))
+                {
+                    _operator!.SetStatus("That character is unavailable", warning: true);
+                    continue;
+                }
+                if (selection.CharacterId == CurrentCharacter.Id) continue;
+                CancelSpeech();
+                _performance.Handle(selection);
+                _stage!.SetCharacter(CurrentCharacter.Id);
+                _profiles!.SelectCharacter(CurrentCharacter.Id);
+                _operator!.SetCharacter(CurrentCharacter.Id);
+                _director!.Handle(new PlayEmotionCommand(EmotionId.Happy));
+                _stage.EmotionAmount = CurrentCharacter.DefaultEmotionAmount;
+                _operator.SetEmotionAmount(CurrentCharacter.DefaultEmotionAmount);
+                _operator.SetSelectedScenes(_actionScenes!.SelectedScenes);
+                _operator.SetStatus($"Meet {CurrentCharacter.Name} — {CurrentCharacter.Tagline}");
+                continue;
+            }
+
             if (_performance.Handle(command))
             {
                 if (command is SetBehaviorStateCommand or PlayPerformanceDemoCommand)
@@ -418,8 +444,8 @@ public sealed partial class AppRoot : Node
                     _actionScenes!.Stop();
                     _operator!.SetSelectedScenes([]);
                     _director!.Handle(new PlayEmotionCommand(EmotionId.Happy));
-                    _stage!.EmotionAmount = .65f;
-                    _operator.SetEmotionAmount(.65f);
+                    _stage!.EmotionAmount = CurrentCharacter.DefaultEmotionAmount;
+                    _operator.SetEmotionAmount(CurrentCharacter.DefaultEmotionAmount);
                 }
                 if (command is PerformanceRequestCommand request)
                 {

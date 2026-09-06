@@ -28,11 +28,12 @@ public sealed class PerformanceController : IPerformanceStatusSource
         _attentionRandom = new Random(seed ^ 0x455945);
     }
     public BehaviorState? State { get; private set; }
+    public CharacterDefinition Character { get; private set; } = CharacterCatalog.Get(CharacterCatalog.DefaultId);
     public float MotionAmount { get; private set; } = .65f;
     public FacePose Frame { get; private set; }
     public PerformanceSnapshot Snapshot
     {
-        get { lock (_gate) return new(State, MotionAmount, Array.AsReadOnly(_status.Values.ToArray())); }
+        get { lock (_gate) return new(State, MotionAmount, Array.AsReadOnly(_status.Values.ToArray()), Character.Id); }
     }
 
     public void Reject(Guid id, string reason)
@@ -49,6 +50,16 @@ public sealed class PerformanceController : IPerformanceStatusSource
         {
             switch (command)
             {
+                case SelectCharacterCommand selection:
+                    if (!CharacterCatalog.IsKnown(selection.CharacterId) || selection.CharacterId == Character.Id) break;
+                    Character = CharacterCatalog.Get(selection.CharacterId);
+                    // Keep the operator's behavior/scene choices, but retire the previous character's acting.
+                    _demoTime = null;
+                    foreach (Performance item in _active.ToArray()) Release(item);
+                    _lookIn = .6;
+                    _blinkIn = 1.4;
+                    _reactionIn = 5;
+                    break;
                 case PlayGestureCommand gesture:
                     if (_status.ContainsKey(gesture.RequestId)) return true;
                     if (gesture.RequestId == Guid.Empty || !Enum.IsDefined(gesture.Gesture) ||
@@ -158,13 +169,14 @@ public sealed class PerformanceController : IPerformanceStatusSource
     private void AdvanceBehavior()
     {
         if (State is null && !_looking && !_blinking) return;
+        CharacterPersonality personality = Character.Personality;
         if (State is not null || _blinking)
         {
             _blinkIn -= Step;
             if (_blinkIn <= 0)
             {
                 StartGesture(GestureId.Blink, .65f, Guid.Empty);
-                _blinkIn = _random.NextDouble() < .12 ? .4 : Next(2.8, 6.2);
+                _blinkIn = _random.NextDouble() < .12 ? .4 : Next(2.8, 6.2) * personality.BlinkIntervalScale;
             }
         }
         if (State is not null || _looking)
@@ -174,7 +186,9 @@ public sealed class PerformanceController : IPerformanceStatusSource
             {
                 float x = State == BehaviorState.Listening ? (float)Next(-.08, .08) : (float)Next(-.7, .7);
                 float y = State == BehaviorState.Thinking ? -.45f : (float)Next(-.2, .25);
-                double hold = State == BehaviorState.Thinking ? Next(3, 5) : Next(1.5, 3.2);
+                x *= personality.AttentionRange;
+                y *= personality.AttentionRange;
+                double hold = (State == BehaviorState.Thinking ? Next(3, 5) : Next(1.5, 3.2)) * personality.HoldScale;
                 StartGaze(x, y, hold, Guid.Empty);
                 _lookIn = hold + Next(1.2, 3);
             }
@@ -184,8 +198,11 @@ public sealed class PerformanceController : IPerformanceStatusSource
             _reactionIn -= Step;
             if (_reactionIn <= 0)
             {
-                StartGesture(State == BehaviorState.Listening ? GestureId.Nod : GestureId.CuriousTilt, .28f, Guid.Empty);
-                _reactionIn = Next(6, 11);
+                GestureId gesture = State == BehaviorState.Listening ? GestureId.Nod : GestureId.CuriousTilt;
+                if (State == BehaviorState.Idle && personality.DelightChance > 0 && _random.NextDouble() < personality.DelightChance)
+                    gesture = GestureId.Delight;
+                StartGesture(gesture, personality.ReactionIntensity, Guid.Empty);
+                _reactionIn = Next(6, 11) * personality.ReactionIntervalScale;
             }
         }
     }

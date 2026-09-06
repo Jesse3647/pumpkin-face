@@ -8,7 +8,8 @@ public sealed class MouthContourDeformerTests
     [Fact]
     public void RoundedAuthoredMouthsRemainSimpleAndClearTheNose()
     {
-        foreach (ReferenceFaceShape face in new[] { ReferenceFaceContours.Happy, ReferenceFaceContours.Sad, ReferenceFaceContours.Frightened })
+        foreach (ReferenceFaceShape face in new[] { ReferenceFaceContours.Happy, ReferenceFaceContours.Sad, ReferenceFaceContours.Frightened,
+            PipFaceContours.Happy, PipFaceContours.Sad, PipFaceContours.Frightened })
         foreach (float scaleY in new[] { .15f, .65f, 1f, 1.43f })
         {
             Vector2 center = face.Mouth.Aggregate(Vector2.Zero, (sum, p) => sum + p) / face.Mouth.Length;

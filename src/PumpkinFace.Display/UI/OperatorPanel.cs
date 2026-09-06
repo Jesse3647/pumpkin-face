@@ -71,6 +71,8 @@ public sealed partial class OperatorPanel : Control
     private bool _updating;
 
     private OptionButton? _behaviorPicker;
+    private OptionButton? _characterPicker;
+    private Label? _characterDescription;
     private HSlider? _motionAmountSlider;
     private float _gestureIntensity = .65f;
     public event Action<AnimationCommand>? PerformanceCommandRequested;
@@ -351,6 +353,7 @@ public sealed partial class OperatorPanel : Control
         inspector.AddThemeConstantOverride("separation", 12);
         inspectorScroll.AddChild(inspector);
         inspector.AddChild(BuildOutputCard());
+        inspector.AddChild(BuildCharacterCard());
         inspector.AddChild(BuildEmotionsCard());
         inspector.AddChild(BuildPerformanceCard());
         inspector.AddChild(BuildActionScenesCard());
@@ -480,6 +483,31 @@ public sealed partial class OperatorPanel : Control
     {
         _emotionAmountSlider?.SetValueNoSignal(amount);
         if (_emotionAmountValue is not null) _emotionAmountValue.Text = $"{amount:P0}";
+    }
+
+    public void SetCharacter(string characterId)
+    {
+        CharacterDefinition character = CharacterCatalog.Get(characterId);
+        for (int i = 0; i < CharacterCatalog.All.Count; i++)
+            if (CharacterCatalog.All[i].Id == character.Id) _characterPicker?.Select(i);
+        if (_characterDescription is not null) _characterDescription.Text = character.Description;
+    }
+
+    private Control BuildCharacterCard()
+    {
+        VBoxContainer content = CreateCardContent("Character");
+        _characterPicker = new OptionButton { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        foreach (CharacterDefinition character in CharacterCatalog.All)
+            _characterPicker.AddItem($"{character.Name} — {character.Tagline}");
+        _characterPicker.ItemSelected += index => PerformanceCommandRequested?.Invoke(
+            new SelectCharacterCommand(CharacterCatalog.All[(int)index].Id));
+        content.AddChild(_characterPicker);
+        _characterDescription = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        content.AddChild(_characterDescription);
+        content.AddChild(CreateButton("Meet this character", () => PerformanceCommandRequested?.Invoke(new PlayPerformanceDemoCommand())));
+        SetCharacter(CharacterCatalog.DefaultId);
+        return WrapCard(content);
     }
 
     public void SetPerformanceState(BehaviorState? state, float motion)

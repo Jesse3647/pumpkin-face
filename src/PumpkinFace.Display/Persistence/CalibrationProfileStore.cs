@@ -421,6 +421,13 @@ public sealed class CalibrationProfileStore : IDisposable, IAsyncDisposable
             : state with { AutoplayEnabled = enabled });
     }
 
+    public void SelectCharacter(string characterId)
+    {
+        if (!CharacterCatalog.IsKnown(characterId)) throw new ArgumentException("Unknown character.", nameof(characterId));
+        Mutate(state => state.SelectedCharacterId == characterId
+            ? state : state with { SelectedCharacterId = characterId });
+    }
+
     /// <summary>
     /// Immediately persists the newest revision. Use this during a clean shutdown
     /// or before changing scenes; ordinary slider changes use the debounce window.
@@ -791,6 +798,7 @@ public sealed class CalibrationProfileStore : IDisposable, IAsyncDisposable
         {
             SchemaVersion = ApplicationStateDocument.CurrentSchemaVersion,
             SelectedProfileId = selectedId,
+            SelectedCharacterId = CharacterCatalog.Get(document.SelectedCharacterId).Id,
             LastDisplayIndex = document.LastDisplayIndex is >= 0
                 ? document.LastDisplayIndex
                 : null,

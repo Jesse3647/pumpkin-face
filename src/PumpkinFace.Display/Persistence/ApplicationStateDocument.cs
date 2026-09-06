@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using PumpkinFace.Core;
 
 namespace PumpkinFace.Display.Persistence;
 
@@ -23,6 +24,8 @@ public sealed record ApplicationStateDocument
     public string? LastDisplayName { get; init; }
 
     public bool AutoplayEnabled { get; init; } = true;
+
+    public string SelectedCharacterId { get; init; } = CharacterCatalog.DefaultId;
 
     public CalibrationProfile[] Profiles { get; init; } = [];
 

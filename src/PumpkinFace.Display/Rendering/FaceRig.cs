@@ -54,6 +54,17 @@ public sealed partial class FaceRig : Node2D
     private Vector2 _cameraOrbitDegrees;
     private double _animationTime;
     private bool _initialized;
+    private string _characterId = CharacterCatalog.DefaultId;
+
+    public string CharacterId => _characterId;
+
+    public void SetCharacter(string characterId)
+    {
+        string resolved = CharacterCatalog.Get(characterId).Id;
+        if (_characterId == resolved) return;
+        _characterId = resolved;
+        RebuildExpressionGeometry();
+    }
 
     public FacePose Pose => _pose;
 
@@ -486,6 +497,10 @@ public sealed partial class FaceRig : Node2D
 
     private ReferenceFaceShape ResolveReferenceShape(FacePose pose)
     {
+        bool pip = _characterId == CharacterCatalog.PipId;
+        ReferenceFaceShape happy = pip ? PipFaceContours.Happy : ReferenceFaceContours.Happy;
+        ReferenceFaceShape frightened = pip ? PipFaceContours.Frightened : ReferenceFaceContours.Frightened;
+        ReferenceFaceShape sad = pip ? PipFaceContours.Sad : ReferenceFaceContours.Sad;
         float brow = (pose.LeftBrowTension + pose.RightBrowTension) * 0.5f;
         float smile = (pose.LeftMouthCorner + pose.RightMouthCorner) * 0.5f;
 
@@ -495,7 +510,7 @@ public sealed partial class FaceRig : Node2D
         // blends between the traced endpoints.
         if (Mathf.Abs(brow) < 0.12f && Mathf.Abs(smile) < 0.12f)
         {
-            return ApplyEmotionAmount(ReferenceFaceContours.Happy);
+            return ApplyEmotionAmount(happy);
         }
 
         Vector2 frightenedPoint = new(-0.88f, -0.82f);
@@ -521,12 +536,12 @@ public sealed partial class FaceRig : Node2D
         sadWeight /= total;
 
         ReferenceFaceShape fearToHappy = BlendReferenceShapes(
-            ReferenceFaceContours.Frightened,
-            ReferenceFaceContours.Happy,
+            frightened,
+            happy,
             happyWeight / Mathf.Max(0.0001f, frightenedWeight + happyWeight));
         return ApplyEmotionAmount(BlendReferenceShapes(
             fearToHappy,
-            ReferenceFaceContours.Sad,
+            sad,
             sadWeight));
     }
 

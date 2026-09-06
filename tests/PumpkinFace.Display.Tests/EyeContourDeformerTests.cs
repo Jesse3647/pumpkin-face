@@ -7,7 +7,8 @@ public sealed class EyeContourDeformerTests
 {
     private static IEnumerable<(Vector2[] Contour, Vector2 Pupil, Vector2 Catchlight)> Eyes()
     {
-        foreach (var face in new[] { ReferenceFaceContours.Happy, ReferenceFaceContours.Sad, ReferenceFaceContours.Frightened })
+        foreach (var face in new[] { ReferenceFaceContours.Happy, ReferenceFaceContours.Sad, ReferenceFaceContours.Frightened,
+            PipFaceContours.Happy, PipFaceContours.Sad, PipFaceContours.Frightened })
         {
             yield return (face.LeftEye, face.LeftPupil, face.LeftCatchlight);
             yield return (face.RightEye, face.RightPupil, face.RightCatchlight);
