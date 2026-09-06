@@ -2,6 +2,7 @@ using Godot;
 using PumpkinFace.Core;
 using PumpkinFace.Display.Animation;
 using PumpkinFace.Display.Rendering;
+using PumpkinFace.Display.UI;
 
 namespace PumpkinFace.Display.Capture;
 
@@ -61,6 +62,8 @@ public sealed partial class DeterministicCaptureRunner : Node
     ];
 
     private CaptureFrame[] _frames = Frames;
+    private string _characterId = CharacterCatalog.DefaultId;
+    private bool _captureOperator;
 
     private static CaptureFrame[] PerformanceSequence() =>
         new[] { "attention", "conversation", "surprise", "interruption" }
@@ -125,10 +128,35 @@ public sealed partial class DeterministicCaptureRunner : Node
         if (OS.GetCmdlineUserArgs().Contains("--capture-performance-motion")) _frames = PerformanceSequence();
         if (OS.GetCmdlineUserArgs().Contains("--capture-attention-motion")) _frames = AttentionSequence();
         if (OS.GetCmdlineUserArgs().Contains("--capture-gesture-motion")) _frames = GestureSequence();
+        string? requestedCharacter = OS.GetCmdlineUserArgs().FirstOrDefault(arg => arg.StartsWith("--capture-character="))?.Split('=', 2)[1];
+        if (requestedCharacter is not null && !CharacterCatalog.IsKnown(requestedCharacter))
+        {
+            FailAndQuit($"Unknown capture character: {requestedCharacter}", VisualDifferenceExitCode);
+            return;
+        }
+        _characterId = CharacterCatalog.Get(requestedCharacter).Id;
+        _stage.SetCharacter(_characterId);
+        if (OS.GetCmdlineUserArgs().Contains("--capture-character-idle"))
+            _frames = Enumerable.Range(0, 121).Select(i => new CaptureFrame(EmotionId.Happy, .42,
+                $"idle-{i:D3}.png", CharacterCatalog.Get(_characterId).DefaultEmotionAmount,
+                PerformanceTime: i / 10d, Variant: "character-idle")).ToArray();
         Directory.CreateDirectory(_captureDirectory);
         _stage.Resize(new Vector2I(1280, 720));
         _stage.ShowGuides = false;
         _stage.AutoAdvanceAnimationTime = false;
+        _captureOperator = OS.GetCmdlineUserArgs().Contains("--capture-operator");
+        if (_captureOperator)
+        {
+            CharacterDefinition character = CharacterCatalog.Get(_characterId);
+            _frames = [new(EmotionId.Happy, .42, "operator-character.png", character.DefaultEmotionAmount)];
+            OperatorPanel panel = new();
+            AddChild(panel);
+            panel.Preview.SetPreviewTexture(_stage.Texture);
+            panel.SetCharacter(character.Id);
+            panel.SetEmotionAmount(character.DefaultEmotionAmount);
+            panel.SetPerformanceState(BehaviorState.Idle, .65f);
+            panel.SetStatus($"Meet {character.Name} — {character.Tagline}");
+        }
         _configured = true;
         RenderingServer.FramePostDraw += OnFramePostDraw;
         _subscribedToPostDraw = true;
@@ -231,7 +259,7 @@ public sealed partial class DeterministicCaptureRunner : Node
     private CaptureAttempt CaptureCurrentFrame()
     {
         CaptureFrame frame = _frames[_frameIndex];
-        Image? image = _stage!.Texture.GetImage();
+        Image? image = (_captureOperator ? GetViewport().GetTexture() : _stage!.Texture).GetImage();
         if (image is null || image.IsEmpty())
         {
             image?.Dispose();
@@ -313,6 +341,7 @@ public sealed partial class DeterministicCaptureRunner : Node
                 new(action.JawOpen, action.MouthWidth, action.MouthRoundness, action.SpeechBlend));
         }
         PerformanceController performance = new(42);
+        performance.Handle(new SelectCharacterCommand(_characterId));
         if (frame.Gesture is { } gesture)
         {
             performance.Handle(new SetMotionAmountCommand(1));
@@ -322,6 +351,11 @@ public sealed partial class DeterministicCaptureRunner : Node
         }
         switch (frame.Variant)
         {
+            case "character-idle":
+                performance.Handle(new SetBehaviorStateCommand(BehaviorState.Idle));
+                performance.Update(frame.PerformanceTime);
+                pose = performance.ComposePose(pose);
+                break;
             case "show-tilt": case "show-nod": case "show-shake":
                 GestureId shownGesture = frame.Variant == "show-tilt" ? GestureId.CuriousTilt :
                     frame.Variant == "show-nod" ? GestureId.Nod : GestureId.Shake;
@@ -340,15 +374,16 @@ public sealed partial class DeterministicCaptureRunner : Node
             case "motion": case "guides": pose = pose with { MotionX = 1, MotionY = -1, MotionRoll = 1 }; break;
             case "speech": pose = SpeechPoseCompositor.Compose(pose, new(.65f, .3f, .9f, 1)); break;
             case "attention": case "conversation": case "surprise": case "interruption":
-                pose = SampleScenario(frame.Variant, frame.PerformanceTime, pose);
+                pose = SampleScenario(frame.Variant, frame.PerformanceTime, pose, _characterId);
                 break;
         }
         return pose.Clamp();
     }
 
-    private static FacePose SampleScenario(string scenario, double time, FacePose expression)
+    private static FacePose SampleScenario(string scenario, double time, FacePose expression, string characterId)
     {
         PerformanceController controller = new(42);
+        controller.Handle(new SelectCharacterCommand(characterId));
         List<(double Time, AnimationCommand Command)> beats = scenario switch
         {
             "attention" => [(0, new SetGazeTargetCommand(Guid.NewGuid(), .7f, -.2f, 5.5)),

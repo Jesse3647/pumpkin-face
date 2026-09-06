@@ -69,6 +69,15 @@ Drag normally inside the operator preview to orbit the 3D camera around the pump
 
 ### Character performance
 
+![Jack and Pip character faces](docs/images/characters.png)
+
+Choose a face in the **Character** card:
+
+- **Jack — The playful pumpkin:** the original carved artwork, a crooked grin, and curious, mischievous idle behavior.
+- **Pip — The woodland daydreamer:** a new cartoon face with big rounded eyes, larger pupils, a button nose, and a soft asymmetric smile. Pip holds attention longer, looks around less widely, and occasionally reacts with delight.
+
+The selection is remembered across launches, separately from calibration profiles. Switching characters cancels the previous performance and speech, starts the new face in Happy, and keeps your behavior selection and motion strength. **Meet this character** runs the demonstration with the selected face. Both characters support all expressions, gestures, directed looks, and Kokoro speech. Personality currently controls autonomous acting; each character also includes a brief for a future model adapter.
+
 The **Character performance** card provides one-shot gestures, nine audience-relative gaze targets with adjustable hold time, gesture intensity, and whole-face motion amount. **Idle**, **Listening**, and **Thinking** coordinate attention and blinking; they describe the performance and do not use a microphone or camera. Select **Rest** to disable autonomous behavior while retaining any manually selected scenes.
 
 The default is a softened Happy expression with quiet attention movements and clearly readable nods, shakes, and curious tilts. Eyes lead attention shifts, keep their target through tilts and nods, and make occasional tiny corrections during longer holds. The upper lid closes over a stationary pupil with a smaller lift from the lower lid; both lids subtly follow vertical gaze. Blinks close quickly and reopen more slowly, and gestures settle back into the selected expression. Compatible actions overlap; a conflicting gesture replaces the previous action with a short transition. Speech retains ownership of its mouth shapes while eye and motion gestures continue.
@@ -172,6 +181,8 @@ This sequence keeps the same gaze target while the pumpkin tilts, blinks, and no
 
 Use `--capture-gesture-motion` instead to compare curious tilt, nod, and shake side by side at the operator's default gesture intensity and motion amount (65% each). It produces three four-second sequences at 20 samples per second.
 
+Add `--capture-character=pip` to capture Pip with any of these modes (the default is `jack`). Use `--capture-character-idle` for 12 seconds of the selected character's seeded idle behavior at 10 samples per second, or `--capture-operator` for a screenshot of its character selector and preview. Capture mode does not change saved character or calibration settings.
+
 ## Future model control
 
 `AppRoot.CommandSink` is the internal, non-blocking command interface; `AppRoot.PerformanceStatus` exposes immutable snapshots. `GestureCatalog.All` describes supported gestures and their timing and intensity limits. A future model adapter can request gestures and observe completion without controlling individual frames:
@@ -182,6 +193,8 @@ bool accepted = app.CommandSink.TryPost(
     new PlayGestureCommand(requestId, GestureId.CuriousTilt, Intensity: 0.65f));
 PerformanceSnapshot status = app.PerformanceStatus.Snapshot;
 ```
+
+`CharacterCatalog.All` lists supported characters and personality briefs. Post `SelectCharacterCommand("pip")` through the same queue to switch; `AppRoot.CurrentCharacter` and the status snapshot's `CharacterId` identify the selection.
 
 Requests use unique IDs; repeating an ID in the retained history does not retrigger it. Gaze accepts screen-relative X/Y in `[-1, 1]` and a hold of `0.1–30` seconds. Recent request outcomes are running, completed, cancelled, or rejected. Always check `TryPost`; a full queue rejects the command. The snapshot retains up to 256 recent outcomes. Gemma integration and network access are not included.
 

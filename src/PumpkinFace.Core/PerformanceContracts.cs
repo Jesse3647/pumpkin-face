@@ -55,7 +55,7 @@ public sealed record CancelPerformanceCommand(Guid RequestId) : AnimationCommand
 public sealed record PlayPerformanceDemoCommand : AnimationCommand;
 public sealed record PerformanceStatus(Guid RequestId, PerformanceOutcome Outcome, string? Reason = null);
 public sealed record PerformanceSnapshot(BehaviorState? State, float MotionAmount,
-    IReadOnlyList<PerformanceStatus> Requests);
+    IReadOnlyList<PerformanceStatus> Requests, string CharacterId = CharacterCatalog.DefaultId);
 public interface IPerformanceStatusSource { PerformanceSnapshot Snapshot { get; } }
 
 /// <summary>Reports admission failures as well as execution outcomes without calling Godot.</summary>

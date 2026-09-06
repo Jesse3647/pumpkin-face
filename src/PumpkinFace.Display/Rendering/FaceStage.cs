@@ -168,6 +168,12 @@ public sealed partial class FaceStage : Node
         ApplyTremble();
     }
 
+    public void SetCharacter(string characterId)
+    {
+        EnsureInitialized();
+        _rig!.SetCharacter(characterId);
+    }
+
     public void SetCalibration(ProjectionCalibration calibration)
     {
         ArgumentNullException.ThrowIfNull(calibration);
